@@ -22,20 +22,32 @@ def fetch(url, binary=False):
         data = r.read()
     return data if binary else data.decode('utf-8', errors='replace')
 
-# ---------- 1. RIF 等级分榜（现役名单，排名/等级分/中文名） ----------
+# ---------- 1. RIF 等级分榜（现役+全历史，排名/等级分/中文名/出生年） ----------
 print('downloading rating.renju.net ...')
-rating_html = fetch(RATING_URL)
-re_rat = re.compile(
-    r'<td class="num">(\d+)</td><td><img[^>]*alt="([A-Z]+)"[^>]*/>\s*'
-    r'<a href="player_(\d{6})\.html"[^>]*title="([^"]*)"[^>]*>([^<]+)</a></td>'
-    r'<td class="num">(\d+)</td>', re.I | re.S)
-rat_rows = []   # (rank, countryCode, disp, cnTitle, en, rating)
-for m in re_rat.finditer(rating_html):
-    rat_rows.append((int(m.group(1)), m.group(2), m.group(3),
-                     m.group(4).strip(), m.group(5).strip(), int(m.group(6))))
-print('rating.renju.net players:', len(rat_rows))
-rat_rating = {d: rating for _, _, d, _, _, rating in rat_rows}
-top100 = [d for _, _, d, _, _, _ in rat_rows[:100]]
+re_tr = re.compile(r'<tr><td class="num">(\d+)</td>(.*?)</tr>', re.S)
+re_a = re.compile(r'<a href="player_(\d{6})\.html"[^>]*title="([^"]*)"[^>]*>([^<]+)</a>')
+re_td = re.compile(r'<td[^>]*>([^<]*)</td>')
+
+def fetch_rating(url):
+    rows = []   # (rank, countryCode, disp, cnTitle, en, rating, countryName, by)
+    for tm in re_tr.finditer(fetch(url)):
+        rank, body = int(tm.group(1)), tm.group(2)
+        am = re_a.search(body)
+        if not am: continue
+        tds = re_td.findall(body)
+        # tds: [rating, ±, gy1, gy2, gy5, country, by]
+        rating = int(tds[0]) if tds and tds[0].isdigit() else 0
+        country = tds[-2].strip() if len(tds) >= 2 else ''
+        by = int(tds[-1]) if tds and tds[-1].isdigit() else 0
+        rows.append((rank, '', am.group(1), am.group(2).strip(),
+                     am.group(3).strip(), rating, country, by))
+    return rows
+
+rat_rows = fetch_rating(RATING_URL)
+rat_all_rows = fetch_rating(RATING_URL + 'rating_all.html')
+print('rating.renju.net players:', len(rat_rows), ' all-history:', len(rat_all_rows))
+rat_rating = {d: rating for _, _, d, _, _, rating, _, _ in rat_rows}
+top100 = [d for _, _, d, _, _, _, _, _ in rat_rows[:100]]
 top100_set = set(top100)
 
 # ---------- 2. ljrenju 榜（中文国家/省市补充） ----------
@@ -141,17 +153,21 @@ with open(xml_path, encoding='utf-8') as f:
 
 print('games:', ngames, 'with moves:', sum(1 for L in lens if L > 0), 'maxpid:', maxpid)
 
-players = []
-for i, (rank, _cc, disp, cn_title, en, rating) in enumerate(rat_rows[:100]):
-    info = lj.get(disp, {})
-    players.append({
-        'rank': rank, 'disp': disp,
-        'en': en, 'cn': info.get('cn') or cn_title,
-        'country': info.get('country', ''), 'city': info.get('city', ''),
-        'rating': rating,
-    })
-missing = [p['disp'] for p in players if not p['cn']]
-if missing: print('top100 missing cn:', missing)
+def build_players(rows):
+    out = []
+    for rank, _cc, disp, cn_title, en, rating, country_en, by in rows[:100]:
+        info = lj.get(disp, {})
+        out.append({
+            'rank': rank, 'disp': disp,
+            'en': en, 'cn': info.get('cn') or cn_title,
+            'country': info.get('country') or country_en,
+            'city': info.get('city', ''),
+            'rating': rating, 'by': by,
+        })
+    return out
+
+players = build_players(rat_rows)
+players_all = build_players(rat_all_rows)
 
 def b64(b): return base64.b64encode(bytes(b)).decode('ascii')
 
@@ -167,6 +183,7 @@ out = {
         'totalTop100': sum(1 for r in res_arr if r >= 4),
     },
     'top100': players,
+    'top100All': players_all,
     'moves': b64(moves_blob),
     'lens': b64(lens),
     'rule': b64(rule_arr),

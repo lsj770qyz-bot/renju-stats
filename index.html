@@ -129,6 +129,13 @@
   }
   .players li:hover { background: #fff6dd; }
   .players .rk { width: 26px; flex: 0 0 26px; color: #a08c62; font-variant-numeric: tabular-nums; }
+  .players .rk.r1 { color: #d4a017; font-weight: 800; }
+  .players .rk.r2 { color: #8f8f8f; font-weight: 800; }
+  .players .rk.r3 { color: #b0653a; font-weight: 800; }
+  .players .age { color: var(--muted); font-size: 11px; font-weight: 400; margin-left: 4px; }
+  .listToggle { display: flex; gap: 4px; margin-top: 6px; }
+  .listToggle button { flex: 1; padding: 3px 0; font-size: 12px; border: 1px solid var(--line); background: #fff; border-radius: 6px; cursor: pointer; color: var(--muted); }
+  .listToggle button.on { background: var(--brown); color: #fff; border-color: var(--brown); }
   .players .nm { flex: 1; color: var(--brown); font-weight: 600; }
   .players .nm i { font-style: normal; font-weight: 400; color: var(--muted); font-size: 11px; margin-left: 4px; }
   .players .rt { color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -158,7 +165,7 @@
   </div>
   <div class="panel">
     <h1>胜率分支图</h1>
-    <p class="sub">数据来源：RenjuNet 对局库（2026-11-01）· 8 向对称局面已归并<br>左键落子深入分支，右键回退一手</p>
+    <p class="sub" id="tSub">左键落子深入分支，右键回退一手</p>
     <div class="tabs">
       <button id="tabAll" class="active">全部对局</button>
       <button id="tabTop">Top100</button>
@@ -172,6 +179,10 @@
 
     <!-- 选手榜 -->
     <div id="playerListBox">
+      <div class="listToggle">
+        <button id="ltCur" class="on">现役</button>
+        <button id="ltAll">全历史</button>
+      </div>
       <ul class="players" id="playerList"></ul>
     </div>
 
@@ -642,6 +653,7 @@ var elCurInfo = document.getElementById('curInfo');
 var elPath = document.getElementById('pathView');
 var elCandCount = document.getElementById('candCount');
 var elCandList = document.getElementById('candList');
+function el(id) { return document.getElementById(id); }
 var elRuleSel = document.getElementById('ruleSel');
 var elYearFrom = document.getElementById('yearFrom');
 var elYearTo = document.getElementById('yearTo');
@@ -666,7 +678,7 @@ var I18N = {
   zh: {
     loading: '正在载入 165,849 局对局数据…',
     h1: '胜率分支图',
-    sub: '数据来源：RenjuNet 对局库（2026-11-01）· 8 向对称局面已归并<br>左键落子深入分支，右键回退一手',
+    sub: '左键落子深入分支，右键回退一手',
     tabAll: '全部对局', tabTop: 'Top100', tabPlayer: '选手个人',
     rule: '规则', allRules: '全部规则', time: '时间', anyYear: '不限', toNow: '至今',
     dsScope: '统计范围', oppRating: '对手等级分', noLimit: '不限',
@@ -675,6 +687,7 @@ var I18N = {
     candLabel: '候选落点', candUnit: ' 个',
     dsAll: '全部 ', dsTop: 'Top100 选手参与 ', dsGames: ' 局', dsPlayer: ' 的对局',
     picking: 'RIF 等级分 Top100',
+    listCur: '现役', listAll: '全历史', ageUnit: '岁',
     back: '← 返回选手榜',
     rifRating: 'RIF 等级分',
     total: '总战绩', winRate: '胜率', scoreRate: '得分率', asBlack: '执黑', asWhite: '执白', gamesUnit: ' 局', share: '占', withMoves: '其中含棋谱',
@@ -691,7 +704,7 @@ var I18N = {
   en: {
     loading: 'Loading 165,849 games…',
     h1: 'Win-Rate Branch Map',
-    sub: 'Data: RenjuNet database (2026-11-01) · 8-way symmetric positions merged<br>Left-click to play into a branch, right-click to undo',
+    sub: 'Left-click to play into a branch, right-click to undo',
     tabAll: 'All Games', tabTop: 'Top 100', tabPlayer: 'Players',
     rule: 'Rule', allRules: 'All rules', time: 'Period', anyYear: 'Any', toNow: 'Now',
     dsScope: 'Scope', oppRating: 'Opp. rating', noLimit: 'No limit',
@@ -700,6 +713,7 @@ var I18N = {
     candLabel: 'Candidates', candUnit: '',
     dsAll: 'All ', dsTop: 'With Top100 players: ', dsGames: ' games', dsPlayer: '\'s games',
     picking: 'RIF Rating Top 100',
+    listCur: 'Active', listAll: 'All-time', ageUnit: ' yrs',
     back: '← Back to player list',
     rifRating: 'RIF rating',
     total: 'Overall', winRate: 'Win', scoreRate: 'Score', asBlack: 'As Black', asWhite: 'As White', gamesUnit: ' games', share: '', withMoves: 'with records',
@@ -716,7 +730,7 @@ var I18N = {
   ja: {
     loading: '165,849 局の対局データを読み込み中…',
     h1: '勝率分岐図',
-    sub: 'データ：RenjuNet 対局庫（2026-11-01）· 8 方向の対称局面を統合<br>左クリックで分岐に進み、右クリックで一手戻る',
+    sub: '左クリックで分岐に進み、右クリックで一手戻る',
     tabAll: '全対局', tabTop: 'Top100', tabPlayer: '選手個人',
     rule: 'ルール', allRules: '全ルール', time: '期間', anyYear: '指定なし', toNow: '現在まで',
     dsScope: '集計範囲', oppRating: '相手レート', noLimit: '上限なし',
@@ -725,6 +739,7 @@ var I18N = {
     candLabel: '候補手', candUnit: ' 個',
     dsAll: '全 ', dsTop: 'Top100 選手参加 ', dsGames: ' 局', dsPlayer: ' の対局',
     picking: 'RIF レーティング Top100',
+    listCur: '現役', listAll: '全歴史', ageUnit: '歳',
     back: '← 選手一覧へ',
     rifRating: 'RIF レーティング',
     total: '通算', winRate: '勝率', scoreRate: 'スコア率', asBlack: '黒番', asWhite: '白番', gamesUnit: ' 局', share: '占', withMoves: 'うち棋譜あり',
@@ -741,7 +756,7 @@ var I18N = {
   ko: {
     loading: '165,849국 대국 데이터 로딩 중…',
     h1: '승률 분기도',
-    sub: '데이터: RenjuNet 대국 DB(2026-11-01) · 8방향 대칭 국면 통합<br>좌클릭으로 분기 진입, 우클릭으로 한 수 되돌리기',
+    sub: '좌클릭으로 분기 진입, 우클릭으로 한 수 되돌리기',
     tabAll: '전체 대국', tabTop: 'Top100', tabPlayer: '선수별',
     rule: '룰', allRules: '전체 룰', time: '기간', anyYear: '제한 없음', toNow: '현재까지',
     dsScope: '집계 범위', oppRating: '상대 레이팅', noLimit: '제한 없음',
@@ -750,6 +765,7 @@ var I18N = {
     candLabel: '후보 착점', candUnit: ' 개',
     dsAll: '전체 ', dsTop: 'Top100 선수 참여 ', dsGames: ' 국', dsPlayer: '의 대국',
     picking: 'RIF 레이팅 Top100',
+    listCur: '현역', listAll: '역대', ageUnit: '세',
     back: '← 선수 목록으로',
     rifRating: 'RIF 레이팅',
     total: '통산', winRate: '승률', scoreRate: '득점률', asBlack: '흑', asWhite: '백', gamesUnit: ' 국', share: '비중', withMoves: '기보 포함',
@@ -773,6 +789,7 @@ function applyLang() {
   tabAll.textContent = t('tabAll');
   tabTop.textContent = t('tabTop');
   tabPlayer.textContent = t('tabPlayer');
+  el('ltCur').textContent = t('listCur'); el('ltAll').textContent = t('listAll');
   document.getElementById('lblRule').textContent = t('rule');
   elRuleSel.options[0].text = t('allRules');
   document.getElementById('lblTime').textContent = t('time');
@@ -816,21 +833,29 @@ function playerName(p, withEn) {
   return p.en;
 }
 
+var listMode = 'cur';
+var CUR_YEAR = new Date().getFullYear();
+function ageStr(p) { return p.by ? ' · ' + (CUR_YEAR - p.by) + t('ageUnit') : ''; }
+
 function renderPlayerList() {
+  var list = listMode === 'all' ? (RAW.top100All || []) : RAW.top100;
   var html = '';
-  for (var i = 0; i < RAW.top100.length; i++) {
-    var p = RAW.top100[i];
-    html += '<li data-disp="' + p.disp + '"><span class="rk">' + p.rank + '</span>' +
-      '<span class="nm">' + playerName(p, true) + '</span>' +
+  for (var i = 0; i < list.length; i++) {
+    var p = list[i];
+    var rkCls = p.rank === 1 ? ' r1' : p.rank === 2 ? ' r2' : p.rank === 3 ? ' r3' : '';
+    html += '<li data-disp="' + p.disp + '"><span class="rk' + rkCls + '">' + p.rank + '</span>' +
+      '<span class="nm">' + playerName(p, true) + '<span class="age">' + ageStr(p) + '</span></span>' +
       '<span class="rt">' + p.rating + '</span></li>';
   }
   elPlayerList.innerHTML = html;
 }
 
 function selectPlayer(disp) {
-  var p = null;
-  for (var i = 0; i < RAW.top100.length; i++) {
-    if (RAW.top100[i].disp === disp) { p = RAW.top100[i]; break; }
+  var p = null, lists = [RAW.top100, RAW.top100All || []];
+  for (var li = 0; li < lists.length && !p; li++) {
+    for (var i = 0; i < lists[li].length; i++) {
+      if (lists[li][i].disp === disp) { p = lists[li][i]; break; }
+    }
   }
   if (!p) return;
   currentPlayer = p;
@@ -873,7 +898,7 @@ function refresh() {
       '<span class="pname">#' + currentPlayer.rank + ' ' + playerName(currentPlayer, false) + '</span>' +
       '<span class="pen">' + (lang === 'zh' ? currentPlayer.en : '') + '</span><br>' +
       (currentPlayer.country ? currentPlayer.country + (currentPlayer.city ? ' · ' + currentPlayer.city : '') + '<br>' : '') +
-      t('rifRating') + ' <b>' + currentPlayer.rating + '</b><br>' +
+      t('rifRating') + ' <b>' + currentPlayer.rating + '</b>' + (currentPlayer.by ? ' ·' + ageStr(currentPlayer) : '') + '<br>' +
       t('total') + ' <b>' + ps.g + '</b>' + t('gamesUnit') + '（' + t('withMoves') + ' ' + ps.gm + '）：' + t('winRate') + ' <b>' + (ps.g ? fmtPct(wins / ps.g) : '-') +
       '</b> · ' + t('scoreRate') + ' <b>' + (ps.g ? fmtPct(scoreRate(wins, draws, ps.g)) : '-') + '</b><br>' +
       t('asBlack') + ' ' + bg + t('gamesUnit') + '（' + t('share') + ' ' + (ps.g ? fmtPct(bg / ps.g) : '-') + '）：' + t('winRate') + ' ' +
@@ -1039,6 +1064,16 @@ tabPlayer.addEventListener('click', function () {
   currentPlayer = null;
   state.moves = [];
   refresh();
+});
+el('ltCur').addEventListener('click', function () {
+  listMode = 'cur';
+  el('ltCur').classList.add('on'); el('ltAll').classList.remove('on');
+  renderPlayerList();
+});
+el('ltAll').addEventListener('click', function () {
+  listMode = 'all';
+  el('ltAll').classList.add('on'); el('ltCur').classList.remove('on');
+  renderPlayerList();
 });
 elCandList.addEventListener('click', function (ev) {
   var li = ev.target.closest('li[data-cell]');
