@@ -136,6 +136,7 @@
   .listToggle { display: flex; gap: 4px; margin-top: 6px; }
   .listToggle button { flex: 1; padding: 3px 0; font-size: 12px; border: 1px solid var(--line); background: #fff; border-radius: 6px; cursor: pointer; color: var(--muted); }
   .listToggle button.on { background: var(--brown); color: #fff; border-color: var(--brown); }
+  .foot { text-align: center; color: var(--muted); font-size: 12px; margin: 16px 0 10px; }
   .players .nm { flex: 1; color: var(--brown); font-weight: 600; }
   .players .nm i { font-style: normal; font-weight: 400; color: var(--muted); font-size: 11px; margin-left: 4px; }
   .players .rt { color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -165,7 +166,7 @@
   </div>
   <div class="panel">
     <h1>胜率分支图</h1>
-    <p class="sub" id="tSub">左键落子深入分支，右键回退一手</p>
+    <p class="sub" id="tSub">点候选点深入分支，点最后一手棋子或右键回退一手</p>
     <div class="tabs">
       <button id="tabAll" class="active">全部对局</button>
       <button id="tabTop">Top100</button>
@@ -213,6 +214,7 @@
     </div>
   </div>
 </div>
+<footer class="foot" id="tFoot">凌世杰 创建 · 数据来源 renju.net 官网 · 禁止商用</footer>
 
 <script src="games.js"></script>
 <script>
@@ -425,13 +427,13 @@ function candidates() {
   var merged = {};
   for (var key in agg) {
     var c0 = parseInt(key, 10);
-    /* 代表点：优先右侧（列大），再优先上侧（行小） */
+    /* 代表点：优先上侧（行小），再优先右侧（列大） */
     var rep = c0;
     for (var s = 0; s < stab.length; s++) {
       var c2 = stab[s][c0];
       var colR = rep % 15, rowR = Math.floor(rep / 15);
       var colC = c2 % 15, rowC = Math.floor(c2 / 15);
-      if (colC > colR || (colC === colR && rowC < rowR)) rep = c2;
+      if (rowC < rowR || (rowC === rowR && colC > colR)) rep = c2;
     }
     var v = agg[key];
     var dst = merged[rep];
@@ -678,7 +680,7 @@ var I18N = {
   zh: {
     loading: '正在载入 165,849 局对局数据…',
     h1: '胜率分支图',
-    sub: '左键落子深入分支，右键回退一手',
+    sub: '点候选点深入分支，点最后一手棋子或右键回退一手',
     tabAll: '全部对局', tabTop: 'Top100', tabPlayer: '选手个人',
     rule: '规则', allRules: '全部规则', time: '时间', anyYear: '不限', toNow: '至今',
     dsScope: '统计范围', oppRating: '对手等级分', noLimit: '不限',
@@ -687,6 +689,7 @@ var I18N = {
     candLabel: '候选落点', candUnit: ' 个',
     dsAll: '全部 ', dsTop: 'Top100 选手参与 ', dsGames: ' 局', dsPlayer: ' 的对局',
     picking: 'RIF 等级分 Top100',
+    foot: '凌世杰 创建 · 数据来源 renju.net 官网 · 禁止商用',
     listCur: '现役', listAll: '全历史', ageUnit: '岁',
     back: '← 返回选手榜',
     rifRating: 'RIF 等级分',
@@ -704,7 +707,7 @@ var I18N = {
   en: {
     loading: 'Loading 165,849 games…',
     h1: 'Win-Rate Branch Map',
-    sub: 'Left-click to play into a branch, right-click to undo',
+    sub: 'Tap a candidate to go deeper, tap the last stone or right-click to undo',
     tabAll: 'All Games', tabTop: 'Top 100', tabPlayer: 'Players',
     rule: 'Rule', allRules: 'All rules', time: 'Period', anyYear: 'Any', toNow: 'Now',
     dsScope: 'Scope', oppRating: 'Opp. rating', noLimit: 'No limit',
@@ -713,6 +716,7 @@ var I18N = {
     candLabel: 'Candidates', candUnit: '',
     dsAll: 'All ', dsTop: 'With Top100 players: ', dsGames: ' games', dsPlayer: '\'s games',
     picking: 'RIF Rating Top 100',
+    foot: 'Created by Ling Shijie · Data: renju.net · No commercial use',
     listCur: 'Active', listAll: 'All-time', ageUnit: ' yrs',
     back: '← Back to player list',
     rifRating: 'RIF rating',
@@ -730,7 +734,7 @@ var I18N = {
   ja: {
     loading: '165,849 局の対局データを読み込み中…',
     h1: '勝率分岐図',
-    sub: '左クリックで分岐に進み、右クリックで一手戻る',
+    sub: '候補手をタップで分岐に進み、最後の石または右クリックで一手戻る',
     tabAll: '全対局', tabTop: 'Top100', tabPlayer: '選手個人',
     rule: 'ルール', allRules: '全ルール', time: '期間', anyYear: '指定なし', toNow: '現在まで',
     dsScope: '集計範囲', oppRating: '相手レート', noLimit: '上限なし',
@@ -739,6 +743,7 @@ var I18N = {
     candLabel: '候補手', candUnit: ' 個',
     dsAll: '全 ', dsTop: 'Top100 選手参加 ', dsGames: ' 局', dsPlayer: ' の対局',
     picking: 'RIF レーティング Top100',
+    foot: '凌世杰 作成 · データ：renju.net 公式 · 商用禁止',
     listCur: '現役', listAll: '全歴史', ageUnit: '歳',
     back: '← 選手一覧へ',
     rifRating: 'RIF レーティング',
@@ -756,7 +761,7 @@ var I18N = {
   ko: {
     loading: '165,849국 대국 데이터 로딩 중…',
     h1: '승률 분기도',
-    sub: '좌클릭으로 분기 진입, 우클릭으로 한 수 되돌리기',
+    sub: '후보점을 눌러 분기 진입, 마지막 돌 또는 우클릭으로 한 수 취소',
     tabAll: '전체 대국', tabTop: 'Top100', tabPlayer: '선수별',
     rule: '룰', allRules: '전체 룰', time: '기간', anyYear: '제한 없음', toNow: '현재까지',
     dsScope: '집계 범위', oppRating: '상대 레이팅', noLimit: '제한 없음',
@@ -765,6 +770,7 @@ var I18N = {
     candLabel: '후보 착점', candUnit: ' 개',
     dsAll: '전체 ', dsTop: 'Top100 선수 참여 ', dsGames: ' 국', dsPlayer: '의 대국',
     picking: 'RIF 레이팅 Top100',
+    foot: 'Ling Shijie 제작 · 데이터: renju.net 공식 · 상업적 이용 금지',
     listCur: '현역', listAll: '역대', ageUnit: '세',
     back: '← 선수 목록으로',
     rifRating: 'RIF 레이팅',
@@ -790,6 +796,7 @@ function applyLang() {
   tabTop.textContent = t('tabTop');
   tabPlayer.textContent = t('tabPlayer');
   el('ltCur').textContent = t('listCur'); el('ltAll').textContent = t('listAll');
+  el('tFoot').textContent = t('foot');
   document.getElementById('lblRule').textContent = t('rule');
   elRuleSel.options[0].text = t('allRules');
   document.getElementById('lblTime').textContent = t('time');
@@ -986,7 +993,9 @@ function playCell(cell) {
 canvas.addEventListener('pointerdown', function (ev) {
   if (ev.button !== 0) return;
   var cell = eventToCell(ev);
-  if (cell === null || !isCandidate(cell)) return;
+  if (cell === null) return;
+  if (state.moves.length && state.moves[state.moves.length - 1] === cell) { undo(); return; }
+  if (!isCandidate(cell)) return;
   playCell(cell);
 });
 canvas.addEventListener('contextmenu', function (ev) {
