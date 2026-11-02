@@ -140,6 +140,7 @@
   .navArrows #btnReset { font-size: 15px; }
   .navArrows button:active { background: #f0e6d2; }
   .players .nm { flex: 1; color: var(--brown); font-weight: 600; }
+  .players .nm.f, .pcard .pname.f { color: #c0392b; }
   .players .nm i { font-style: normal; font-weight: 400; color: var(--muted); font-size: 11px; margin-left: 4px; }
   .players .rt { color: var(--ink); font-variant-numeric: tabular-nums; }
   .pcard { font-size: 13px; line-height: 1.9; }
@@ -185,7 +186,10 @@
     <div id="playerListBox">
       <div class="listToggle">
         <button id="ltCur" class="on">现役</button>
+        <button id="ltWomen">女子</button>
+        <button id="ltQT">QT资格</button>
         <button id="ltAll">全历史</button>
+        <button id="ltWomenAll">女子全历史</button>
       </div>
       <ul class="players" id="playerList"></ul>
     </div>
@@ -699,7 +703,7 @@ var I18N = {
     picking: 'RIF 等级分 Top100',
     foot: '凌世杰 创建 · 数据来源 renju.net 官网 · 禁止商用',
     endHere: '在此终局的对局', resB: '黑胜', resW: '白胜', resD: '和棋',
-    listCur: '现役', listAll: '全历史', ageUnit: '岁',
+    listCur: '现役', listWomen: '女子', listQT: 'QT资格', listAll: '全历史', listWomenAll: '女子全历史', ageUnit: '岁',
     back: '← 返回选手榜',
     rifRating: 'RIF 等级分',
     total: '总战绩', winRate: '胜率', scoreRate: '得分率', asBlack: '执黑', asWhite: '执白', gamesUnit: ' 局', share: '占', withMoves: '其中含棋谱',
@@ -727,7 +731,7 @@ var I18N = {
     picking: 'RIF Rating Top 100',
     foot: 'Created by Ling Shijie · Data: renju.net · No commercial use',
     endHere: 'Games ending here', resB: 'Black wins', resW: 'White wins', resD: 'Draw',
-    listCur: 'Active', listAll: 'All-time', ageUnit: ' yrs',
+    listCur: 'Active', listWomen: 'Women', listQT: 'QT', listAll: 'All-time', listWomenAll: 'Women All-time', ageUnit: ' yrs',
     back: '← Back to player list',
     rifRating: 'RIF rating',
     total: 'Overall', winRate: 'Win', scoreRate: 'Score', asBlack: 'As Black', asWhite: 'As White', gamesUnit: ' games', share: '', withMoves: 'with records',
@@ -755,7 +759,7 @@ var I18N = {
     picking: 'RIF レーティング Top100',
     foot: '凌世杰 作成 · データ：renju.net 公式 · 商用禁止',
     endHere: 'ここで終局した対局', resB: '黒勝ち', resW: '白勝ち', resD: '引き分け',
-    listCur: '現役', listAll: '全歴史', ageUnit: '歳',
+    listCur: '現役', listWomen: '女子', listQT: 'QT', listAll: '全歴史', listWomenAll: '女子全歴史', ageUnit: '歳',
     back: '← 選手一覧へ',
     rifRating: 'RIF レーティング',
     total: '通算', winRate: '勝率', scoreRate: 'スコア率', asBlack: '黒番', asWhite: '白番', gamesUnit: ' 局', share: '占', withMoves: 'うち棋譜あり',
@@ -783,7 +787,7 @@ var I18N = {
     picking: 'RIF 레이팅 Top100',
     foot: 'Ling Shijie 제작 · 데이터: renju.net 공식 · 상업적 이용 금지',
     endHere: '여기서 끝난 대국', resB: '흑 승', resW: '백 승', resD: '무승부',
-    listCur: '현역', listAll: '역대', ageUnit: '세',
+    listCur: '현역', listWomen: '여자', listQT: 'QT', listAll: '역대', listWomenAll: '여자 역대', ageUnit: '세',
     back: '← 선수 목록으로',
     rifRating: 'RIF 레이팅',
     total: '통산', winRate: '승률', scoreRate: '득점률', asBlack: '흑', asWhite: '백', gamesUnit: ' 국', share: '비중', withMoves: '기보 포함',
@@ -807,7 +811,8 @@ function applyLang() {
   tabAll.textContent = t('tabAll');
   tabTop.textContent = t('tabTop');
   tabPlayer.textContent = t('tabPlayer');
-  el('ltCur').textContent = t('listCur'); el('ltAll').textContent = t('listAll');
+  el('ltCur').textContent = t('listCur'); el('ltWomen').textContent = t('listWomen'); el('ltQT').textContent = t('listQT');
+  el('ltAll').textContent = t('listAll'); el('ltWomenAll').textContent = t('listWomenAll');
   el('tFoot').textContent = t('foot');
   document.getElementById('lblRule').textContent = t('rule');
   elRuleSel.options[0].text = t('allRules');
@@ -858,20 +863,25 @@ var CUR_YEAR = new Date().getFullYear();
 function ageStr(p) { return p.by ? ' · ' + (CUR_YEAR - p.by) + t('ageUnit') : ''; }
 
 function renderPlayerList() {
-  var list = listMode === 'all' ? (RAW.top100All || []) : RAW.top100;
-  var html = '';
-  for (var i = 0; i < list.length; i++) {
-    var p = list[i];
-    var rkCls = p.rank === 1 ? ' r1' : p.rank === 2 ? ' r2' : p.rank === 3 ? ' r3' : '';
-    html += '<li data-disp="' + p.disp + '"><span class="rk' + rkCls + '">' + p.rank + '</span>' +
-      '<span class="nm">' + playerName(p, true) + '<span class="age">' + ageStr(p) + '</span></span>' +
+  var src, isW = false, limit = 100;
+  if (listMode === 'qt') { src = RAW.listQT || []; limit = 20; }
+  else if (listMode === 'cur' || listMode === 'women') { src = RAW.listActive || RAW.top100; isW = listMode === 'women'; }
+  else { src = RAW.listHist || RAW.top100All || []; isW = listMode === 'wall'; }
+  var html = '', shown = 0;
+  for (var i = 0; i < src.length && shown < limit; i++) {
+    var p = src[i];
+    if (isW && !p.f) continue;
+    shown++;
+    var rkCls = shown === 1 ? ' r1' : shown === 2 ? ' r2' : shown === 3 ? ' r3' : '';
+    html += '<li data-disp="' + p.disp + '"><span class="rk' + rkCls + '">' + shown + '</span>' +
+      '<span class="nm' + (p.f ? ' f' : '') + '">' + playerName(p, true) + '<span class="age">' + ageStr(p) + '</span></span>' +
       '<span class="rt">' + p.rating + '</span></li>';
   }
   elPlayerList.innerHTML = html;
 }
 
 function selectPlayer(disp) {
-  var p = null, lists = [RAW.top100, RAW.top100All || []];
+  var p = null, lists = [RAW.top100, RAW.top100All || [], RAW.listActive || [], RAW.listHist || [], RAW.listQT || []];
   for (var li = 0; li < lists.length && !p; li++) {
     for (var i = 0; i < lists[li].length; i++) {
       if (lists[li][i].disp === disp) { p = lists[li][i]; break; }
@@ -939,7 +949,7 @@ function refresh() {
     var bg = ps.bw + ps.bd + ps.bl, wg = ps.ww + ps.wd + ps.wl;
     elPcard.innerHTML =
       '<span class="back" id="pback">' + t('back') + '</span>' +
-      '<span class="pname">#' + currentPlayer.rank + ' ' + playerName(currentPlayer, false) + '</span>' +
+      '<span class="pname' + (currentPlayer.f ? ' f' : '') + '">#' + currentPlayer.rank + ' ' + playerName(currentPlayer, false) + '</span>' +
       '<span class="pen">' + (lang === 'zh' ? currentPlayer.en : '') + '</span><br>' +
       (currentPlayer.country ? currentPlayer.country + (currentPlayer.city ? ' · ' + currentPlayer.city : '') + '<br>' : '') +
       t('rifRating') + ' <b>' + currentPlayer.rating + '</b>' + (currentPlayer.by ? ' ·' + ageStr(currentPlayer) : '') + '<br>' +
@@ -1117,16 +1127,16 @@ tabPlayer.addEventListener('click', function () {
   currentPlayer = null;
   refresh();
 });
-el('ltCur').addEventListener('click', function () {
-  listMode = 'cur';
-  el('ltCur').classList.add('on'); el('ltAll').classList.remove('on');
+el('ltCur').addEventListener('click', function () { setListMode('cur', 'ltCur'); });
+el('ltWomen').addEventListener('click', function () { setListMode('women', 'ltWomen'); });
+el('ltQT').addEventListener('click', function () { setListMode('qt', 'ltQT'); });
+el('ltAll').addEventListener('click', function () { setListMode('all', 'ltAll'); });
+el('ltWomenAll').addEventListener('click', function () { setListMode('wall', 'ltWomenAll'); });
+function setListMode(mode, btnId) {
+  listMode = mode;
+  ['ltCur', 'ltWomen', 'ltQT', 'ltAll', 'ltWomenAll'].forEach(function (x) { el(x).classList.toggle('on', x === btnId); });
   renderPlayerList();
-});
-el('ltAll').addEventListener('click', function () {
-  listMode = 'all';
-  el('ltAll').classList.add('on'); el('ltCur').classList.remove('on');
-  renderPlayerList();
-});
+}
 elCandList.addEventListener('click', function (ev) {
   var li = ev.target.closest('li[data-cell]');
   if (!li) return;

@@ -46,6 +46,8 @@ def fetch_rating(url):
 rat_rows = fetch_rating(RATING_URL)
 rat_all_rows = fetch_rating(RATING_URL + 'rating_all.html')
 print('rating.renju.net players:', len(rat_rows), ' all-history:', len(rat_all_rows))
+female_set = set(re.findall(r'player_(\d{6})\.html" class="female"', fetch(RATING_URL + 'players.html')))
+print('female players:', len(female_set))
 rat_rating = {d: rating for _, _, d, _, _, rating, _, _ in rat_rows}
 top100 = [d for _, _, d, _, _, _, _, _ in rat_rows[:100]]
 top100_set = set(top100)
@@ -170,9 +172,9 @@ for pid in used_pids:
     if nm: pname[str(pid)] = nm
 print('named players:', len(pname), '/', len(used_pids))
 
-def build_players(rows):
+def build_players(rows, limit=100):
     out = []
-    for rank, _cc, disp, cn_title, en, rating, country_en, by in rows[:100]:
+    for rank, _cc, disp, cn_title, en, rating, country_en, by in rows[:limit]:
         info = lj.get(disp, {})
         out.append({
             'rank': rank, 'disp': disp,
@@ -180,11 +182,17 @@ def build_players(rows):
             'country': info.get('country') or country_en,
             'city': info.get('city', ''),
             'rating': rating, 'by': by,
+            'f': 1 if disp in female_set else 0,
         })
     return out
 
 players = build_players(rat_rows)
 players_all = build_players(rat_all_rows)
+players_full = build_players(rat_rows, None)
+players_all_full = build_players(rat_all_rows, None)
+qt_rows = fetch_rating(RATING_URL + 'rating_gy1.html')
+players_qt = build_players(qt_rows, 20)
+print('QT list:', len(players_qt))
 
 def b64(b): return base64.b64encode(bytes(b)).decode('ascii')
 
@@ -201,6 +209,9 @@ out = {
     },
     'top100': players,
     'top100All': players_all,
+    'listActive': players_full,
+    'listHist': players_all_full,
+    'listQT': players_qt,
     'pname': pname,
     'moves': b64(moves_blob),
     'lens': b64(lens),
@@ -210,8 +221,12 @@ out = {
     'black': b64(black_arr),
     'white': b64(white_arr),
 }
-# disp_id -> 内部id 映射（用于把 top100 映射到每局的 black/white id）
-out['pidByDisp'] = {d: int(pid) for pid, d in player_disp.items() if d in top100_set}
+# disp_id -> 内部id 映射（用于把榜单选手映射到每局的 black/white id）
+listed_disps = set(top100_set)
+for rows in (rat_rows, rat_all_rows):
+    for _r, _c, d, _t, _e, _rt, _co, _by in rows:
+        listed_disps.add(d)
+out['pidByDisp'] = {d: int(pid) for pid, d in player_disp.items() if d in listed_disps}
 # 内部id -> RIF 等级分（rating.renju.net 现役榜上所有选手，用于对手分级统计）
 out['ratingByPid'] = {int(pid): rat_rating[d] for pid, d in player_disp.items() if d in rat_rating}
 with open(OUT, 'w', encoding='utf-8') as f:
