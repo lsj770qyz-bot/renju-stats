@@ -172,6 +172,11 @@ for pid in used_pids:
     if nm: pname[str(pid)] = nm
 print('named players:', len(pname), '/', len(used_pids))
 
+# 官方榜 BY 列缺失时手动补充出生年（disp_id -> 出生年）
+BY_FIX = {
+    '101796': 2015,  # 宋翎嘉 2015.7.7
+}
+
 def build_players(rows, limit=100):
     out = []
     for rank, _cc, disp, cn_title, en, rating, country_en, by in rows[:limit]:
@@ -181,7 +186,7 @@ def build_players(rows, limit=100):
             'en': en, 'cn': info.get('cn') or cn_title,
             'country': info.get('country') or country_en,
             'city': info.get('city', ''),
-            'rating': rating, 'by': by,
+            'rating': rating, 'by': by or BY_FIX.get(disp, 0),
             'f': 1 if disp in female_set else 0,
         })
     return out
