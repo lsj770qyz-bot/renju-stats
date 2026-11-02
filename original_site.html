@@ -1,0 +1,2038 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#ffd88b">
+<title>770LSJ · 连珠连续冲四</title>
+<style>
+  :root {
+    --brown: #695020;
+    --ink: #5a4a2c;
+    --muted: #988a70;
+    --line: #e2dac8;
+    --panel: #fcfaf6;
+    --board: #ffd88b;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: #f4f1ea;
+    color: var(--ink);
+    font-family: "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", system-ui, sans-serif;
+  }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    /* 顶部留出语言按钮的位置，窗口不够高时可以整页滚动，棋盘不会被裁掉 */
+    padding: 44px env(safe-area-inset-right) 12px env(safe-area-inset-left);
+  }
+  .wrap {
+    display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: center;
+    gap: 16px; width: 100%; max-width: 1080px;
+  }
+  .stage {
+    position: relative;
+    width: min(92vw, 74vh, 620px);
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 10px;
+    box-shadow: 0 6px 22px rgba(105, 80, 32, .16);
+    touch-action: manipulation;
+  }
+  /* 「开始答题」遮罩：未开始前只露空棋盘，题目在按钮之后才出现 */
+  .overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    padding: 14px;
+    background: rgba(246, 243, 236, .92);
+    border-radius: 10px;
+  }
+  .overlay[hidden] { display: none; }
+  .overlay-card {
+    width: min(100%, 330px);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 18px;
+    box-shadow: 0 8px 26px rgba(105, 80, 32, .18);
+    text-align: center;
+  }
+  .ov-title { font-size: 20px; font-weight: 600; color: var(--brown); }
+  .ov-sub { margin-top: 8px; font-size: 13px; line-height: 1.7; color: #7d7159; }
+  .overlay-card input {
+    width: 100%; margin-top: 14px; padding: 10px 12px;
+    font-size: 15px; font-family: inherit; color: var(--ink);
+    border: 1px solid #d9cfb9; border-radius: 8px; background: #fff;
+  }
+  .overlay-card button {
+    width: 100%; margin-top: 12px; padding: 12px 8px;
+    font-size: 16px; font-weight: 600;
+    color: var(--brown); font-family: inherit; cursor: pointer;
+    background: var(--board); border: 1px solid #e6c073;
+    border-radius: 8px;
+  }
+  .ov-tip { margin-top: 10px; font-size: 12px; color: #a89c86; line-height: 1.6; }
+  .ov-fx {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    margin-top: 12px; font-size: 13px; color: #7d7159; cursor: pointer;
+  }
+  .ov-fx input { width: auto; margin: 0; accent-color: #b98c34; }
+  .lang-bar {
+    position: fixed; top: 8px; left: 8px; z-index: 30;
+    display: flex; gap: 4px; padding: 3px;
+    border-radius: 10px; border: 1px solid #d9cfb9;
+    background: rgba(255, 255, 255, .94);
+    box-shadow: 0 2px 8px rgba(105, 80, 32, .12);
+  }
+  .lang-bar button {
+    flex: 0 0 auto; padding: 4px 9px;
+    font-family: inherit; font-size: 12px; line-height: 1.2;
+    color: var(--brown); background: transparent;
+    border: 1px solid transparent; border-radius: 7px;
+    cursor: pointer; white-space: nowrap;
+  }
+  .lang-bar button.active { background: var(--board); border-color: #e6c073; font-weight: 600; }
+  .lb-head {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 15px; color: var(--brown);
+  }
+  .lb-head button { flex: 0 0 auto; padding: 5px 12px; font-size: 12px; }
+  .lb { list-style: none; margin: 8px 0 0; padding: 0 2px 0 0; font-size: 13px; max-height: min(60vh, 460px); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .lb li {
+    display: flex; align-items: baseline; gap: 6px;
+    padding: 4px 0; border-bottom: 1px dashed #ece5d6;
+  }
+  .lb li .rank { width: 16px; flex: 0 0 16px; color: #a08c62; }
+  .lb li .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lb li .sc { font-variant-numeric: tabular-nums; color: var(--brown); }
+  .lb li .tm { font-variant-numeric: tabular-nums; color: #8f7f63; }
+  .lb li.me { background: #fff6dd; border-radius: 4px; }
+  .lb-empty { color: #a89c86; font-size: 13px; display: block; padding: 4px 0; }
+  .lb-note { margin-top: 8px; font-size: 11px; color: #a89c86; line-height: 1.5; }
+  /* 对错动画：正确=金色闪屏+彩带+弹入，错误=红色闪屏+抖动 */
+  .fx {
+    position: absolute; inset: 0; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 10px; pointer-events: none;
+  }
+  .fx[hidden] { display: none; }
+  .fx-badge {
+    padding: 12px 26px; border-radius: 14px;
+    font-size: 28px; font-weight: 800; letter-spacing: 2px;
+    background: rgba(255, 255, 255, .95);
+    box-shadow: 0 10px 30px rgba(105, 80, 32, .22);
+  }
+  .fx.ok { animation: okFlash .85s ease-out both; }
+  .fx.fail { animation: failFlash .85s ease-out both; }
+  .fx.ok .fx-badge {
+    color: #1c7a42; border: 3px solid #f0c14b;
+    animation: badgePop .8s cubic-bezier(.2, 1.7, .4, 1) both;
+  }
+  .fx.fail .fx-badge {
+    color: #c43030; border: 3px solid #e8b4b4;
+    animation: badgeShake .75s cubic-bezier(.36, .07, .19, .97) both;
+  }
+  .fx i.conf {
+    position: absolute; top: -24px; width: 8px; height: 13px;
+    border-radius: 2px; opacity: 0;
+    animation: confFall 1.15s ease-in forwards;
+  }
+  .stage.shake { animation: stageShake .42s ease-in-out; }
+  @keyframes okFlash { 0% { background: rgba(255, 206, 84, .78); } 100% { background: rgba(255, 206, 84, 0); } }
+  @keyframes failFlash { 0% { background: rgba(210, 60, 60, .5); } 100% { background: rgba(210, 60, 60, 0); } }
+  @keyframes badgePop {
+    0% { transform: scale(.35) rotate(-8deg); opacity: 0; }
+    55% { transform: scale(1.12) rotate(2deg); opacity: 1; }
+    100% { transform: scale(1) rotate(0deg); opacity: 1; }
+  }
+  @keyframes badgeShake {
+    0% { transform: scale(.5); opacity: 0; }
+    35% { transform: scale(1.05) translateX(-10px); opacity: 1; }
+    55% { transform: scale(1) translateX(9px); }
+    70% { transform: translateX(-6px); }
+    85% { transform: translateX(4px); }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes confFall {
+    0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(460px) rotate(320deg); opacity: .15; }
+  }
+  @keyframes stageShake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-7px); }
+    40% { transform: translateX(6px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(3px); }
+  }
+  button:disabled { opacity: .45; cursor: default; }
+  .panel {
+    width: min(92vw, 320px);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 18px;
+    box-shadow: 0 4px 16px rgba(105, 80, 32, .07);
+  }
+  h1 { margin: 0 0 2px; font-size: 22px; color: var(--brown); letter-spacing: 1px; }
+  .sub { margin: 0 0 14px; font-size: 13px; color: var(--muted); }
+  .row {
+    display: flex; align-items: baseline; justify-content: space-between;
+    font-size: 17px; color: var(--brown);
+  }
+  .row .clock { font-variant-numeric: tabular-nums; font-weight: 600; }
+  hr { border: none; border-top: 1px solid var(--line); margin: 12px 0; }
+  .chain { font-size: 15px; color: var(--brown); margin-bottom: 12px; }
+  .chain b { font-size: 18px; }
+  .turn-badge {
+    position: absolute; top: 10px; right: 10px; z-index: 20;
+    padding: 6px 14px; border-radius: 999px;
+    font-size: 16px; font-weight: 700; letter-spacing: .5px;
+    color: #6b4400; background: rgba(255, 235, 175, .96);
+    border: 2px solid #e6c073;
+    box-shadow: 0 2px 10px rgba(105, 80, 32, .22);
+    pointer-events: none;
+  }
+  .turn-badge.w { color: #1b4a80; background: rgba(216, 232, 255, .96); border-color: #94b9e6; }
+  .turn-badge[hidden] { display: none; }
+  .msg {
+    min-height: 96px;
+    background: #fff9eb;
+    border: 2px solid var(--muted);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 15px;
+    line-height: 1.65;
+    overflow-wrap: anywhere;
+    transition: border-color .15s, color .15s;
+  }
+  .stats { margin-top: 12px; font-size: 13px; color: #6e6450; }
+  .auto { margin-top: 6px; font-size: 14px; font-weight: 600; min-height: 20px; }
+  .actions { display: flex; gap: 10px; margin-top: 14px; }
+  button {
+    flex: 1; padding: 10px 8px; font-size: 14px;
+    font-family: inherit; color: var(--brown);
+    background: #fff; border: 1px solid #d9cfb9; border-radius: 8px;
+    cursor: pointer;
+  }
+  button:active { background: #f3ecdf; }
+  button.primary { background: var(--board); border-color: #e6c073; font-weight: 600; }
+  .hint { margin-top: 10px; font-size: 12px; color: #a89c86; line-height: 1.6; }
+  @media (max-width: 760px) {
+    body {
+      align-items: flex-start;
+      padding: 40px env(safe-area-inset-right) 8px env(safe-area-inset-left);
+    }
+    .lang-bar { top: 6px; left: 6px; gap: 3px; padding: 2px; }
+    .lang-bar button { font-size: 11px; padding: 4px 6px; }
+    .turn-badge { top: 6px; right: 6px; font-size: 13px; padding: 5px 10px; }
+    .wrap { gap: 10px; }
+    /* 手机上棋盘尽量占满屏宽，横屏时用高度兜底 */
+    .stage { width: min(96vw, 90vh); }
+    .panel { width: min(96vw, 620px); }
+    .msg { min-height: 72px; }
+    .hint { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="lang-bar" id="langBar" aria-label="Language">
+  <button type="button" class="lang-btn" data-lang="zh">中文</button>
+  <button type="button" class="lang-btn" data-lang="en">English</button>
+  <button type="button" class="lang-btn" data-lang="ja">日本語</button>
+  <button type="button" class="lang-btn" data-lang="ko">한국어</button>
+</div>
+<div class="wrap">
+  <div class="stage">
+    <canvas id="board"></canvas>
+    <div class="turn-badge" id="turnTag" hidden>黑先 · 你执黑</div>
+    <div class="overlay" id="overlay">
+      <div class="overlay-card">
+        <div class="ov-title" id="ovTitle">770LSJ 竞速</div>
+        <div class="ov-sub" id="ovSub">输入昵称，按「开始本局」：题目立刻出现并开始计时。</div>
+        <input id="ovName" maxlength="16" placeholder="你的昵称" autocomplete="off">
+        <label class="ov-fx" id="ovFxRow"><input type="checkbox" id="ovFx" checked> <span id="ovFxText">开启对错动画与彩带</span></label>
+        <button id="ovBtn">开始本局</button>
+        <div class="ov-tip" id="ovTip">每题限时 60 秒，超时判负并自动进入下一题。</div>
+      </div>
+    </div>
+    <div class="fx" id="fx" hidden>
+      <div class="fx-badge" id="fxBadge"></div>
+    </div>
+  </div>
+  <aside class="panel">
+    <h1>770LSJ</h1>
+    <p class="sub" id="sub">RIF 连珠 · VCF 竞速（黑先）</p>
+    <div class="row">
+      <span id="progress">已答 0 题</span>
+      <span class="clock" id="clock">—</span>
+    </div>
+    <div class="row" style="font-size:13px;color:#8a7c62;margin-top:4px">
+      <span id="player">未开始</span>
+      <span id="remain">限时 60s</span>
+    </div>
+    <hr>
+    <div class="chain"><span id="chainLabel">已连续冲四：</span><b id="chain">0</b> <span id="chainUnit">手</span></div>
+    <div class="msg" id="msg">正在装载棋谱…</div>
+    <div class="stats" id="stats">本局：答对 0 · 已答 0 · 用时 0.00s</div>
+    <div class="auto" id="auto"></div>
+    <div class="actions">
+      <button id="btnSkip">跳过本题（算错）</button>
+      <button id="btnEnd">结束本局</button>
+    </div>
+    <hr>
+    <div class="lb-head">
+      <span id="lbTitle">排行榜</span>
+      <button id="btnLbRefresh">刷新</button>
+    </div>
+    <ol class="lb" id="lbList"><li class="lb-empty">暂无记录</li></ol>
+    <div class="lb-note" id="lbNote">按正确数 → 正确率 → 用时排序，每人只保留自己的最好一局。</div>
+    <div class="hint" id="hint">点棋盘交叉点落黑子；每手必须是冲四，白方会堵唯一的成五点。白方若自己有连五机会，会直接连五取胜。每题限时 60 秒，超时判负。</div>
+  </aside>
+</div>
+<script>
+'use strict';
+
+/* ============================================================
+ *  规则常量（与桌面版 renju_vcf.py 完全一致）
+ * ============================================================ */
+var EMPTY = 0, BLACK = 1, WHITE = 2;
+var N = 15;
+var DIRS = [[0, 1], [1, 0], [1, 1], [1, -1]];
+var STARS = [[3, 3], [3, 11], [11, 3], [11, 11], [7, 7]];
+
+var WIN_FIVE = 'WIN_FIVE';
+var WIN_OPEN_FOUR = 'WIN_OPEN_FOUR';
+var RUSH_FOUR = 'RUSH_FOUR';
+var LOSE_NO_FOUR = 'LOSE_NO_FOUR';
+var FAIL_WHITE_FIVE = 'FAIL_WHITE_FIVE';
+var FAIL_WHITE_WIN = 'FAIL_WHITE_WIN';
+var FAIL_NOT_FOUR_VCT = 'FAIL_NOT_FOUR_VCT';
+var FAIL_FORBIDDEN_33 = 'FAIL_FORBIDDEN_33';
+var FAIL_FORBIDDEN_44 = 'FAIL_FORBIDDEN_44';
+var FAIL_FORBIDDEN_OVERLINE = 'FAIL_FORBIDDEN_OVERLINE';
+var FAIL_OCCUPIED = 'FAIL_OCCUPIED';
+var FAIL_TIMEOUT = 'FAIL_TIMEOUT';
+var FAIL_SKIP = 'FAIL_SKIP';
+var FAIL_GAME_OVER = 'FAIL_GAME_OVER';
+var FAIL_BLACK_WIN = 'FAIL_BLACK_WIN';   /* 白先题里黑棋直接连五取胜 */
+
+/* 每题限时（毫秒）：到点未完成自动判负并切下一题 */
+var TIME_LIMIT_MS = 60000;
+/* 一回合题数：做完 15 题自动结束并回到主页面统计成绩 */
+var ROUND_SIZE = 15;
+
+/* ============================================================
+ *  多语言：中 / 英 / 日 / 韩，默认中文
+ * ============================================================ */
+var LANGS = ['zh', 'en', 'ja', 'ko'];
+var LANG_KEY = '770lsj_lang';
+var lang = 'zh';
+try {
+  var savedLang = localStorage.getItem(LANG_KEY);
+  if (LANGS.indexOf(savedLang) >= 0) lang = savedLang;
+} catch (e) { /* 隐私模式忽略 */ }
+
+var TEXT = {
+  zh: {
+    docTitle: '770LSJ · 连珠连续冲四',
+    sub: 'RIF 连珠 · VCF 竞速（黑先 / 白先）',
+    anon: '匿名棋手',
+    progress: function (d) { return '已答 ' + d.n + ' 题'; },
+    stats: function (d) { return '本局：答对 ' + d.solved + ' · 已答 ' + d.n + ' · 用时 ' + d.time; },
+    player: function (d) { return '棋手：' + d.name; },
+    playerIdle: '未开始',
+    remain: function (d) { return '剩余 ' + d.time; },
+    remainIdle: '限时 60s',
+    chainLabel: '已连续冲四：',
+    chainUnit: '手',
+    loading: '正在装载棋谱…',
+    preparing: '正在准备棋谱，请稍候…',
+    btnSkip: '跳过本题（算错）',
+    btnEnd: '结束本局',
+    lbTitle: '排行榜',
+    lbRefresh: '刷新',
+    lbEmpty: '暂无记录',
+    lbNoteIdle: '按正确数 → 正确率 → 用时排序，每人只保留自己的最好一局。',
+    lbNoteOnline: '在线排行榜 · 正确数 → 正确率 → 用时，每人只留最好一局。',
+    lbNoteLocal: '本机记录（未连上服务器）：换设备不共享，部署后会变成在线排行榜。',
+    hint: '按面板显示的先后手落子（黑先执黑、白先执白）；每手必须是冲四。黑先题里白方堵唯一成五点，白先题里黑方被迫防守，若堵点是黑棋禁手（三三/四四/长连）则白方直接胜；黑方若能连五则白方失败。每题限时 60 秒，超时判负。',
+    ovTitleStart: '770LSJ 竞速',
+    ovSubStart: '输入昵称，按「开始本局」：题目立刻出现并开始计时。',
+    ovNamePh: '你的昵称',
+    ovFxText: '开启对错动画与彩带',
+    ovBtnStart: '开始本局',
+    ovTipStart: '每题限时 60 秒，超时判负并自动进入下一题。',
+    ovTitleEnd: '本局结束',
+    ovSubEnd: function (d) {
+      return d.name + '：答对 ' + d.solved + ' / 已答 ' + d.n + ' 题，正确率 ' + d.acc + '%，用时 ' + d.time +
+             (d.rank ? '，当前排名第 ' + d.rank + ' 名' : '');
+    },
+    ovBtnAgain: '再来一局',
+    ovTipEnd: '排行榜只保留每个人最好的一局。',
+    confirmEnd: '结束本局并提交成绩？',
+    auto: function (d) { return (d.ok ? '✓ 用时 ' : '✗ 用时 ') + d.time + '，' + d.remain + 's 后进入下一题'; },
+    fxOk: '✓ 正确',
+    fxFail: '× 答错',
+    mWhiteWin: '× 白方另有连五机会，不防冲四直接连五，黑方判负。',
+    mTimeout: function (d) { return '× ' + d.sec + ' 秒内没有完成，本题超时判负。'; },
+    mReady: '题目已就绪。',
+    mSkip: '× 已跳过本题，本题按答错计。',
+    mStart: '黑先：请连续走出冲四，完成 VCF。',
+    mGameOver: '本题已经结束，稍后自动进入下一题。',
+    mOutside: '落子位置超出棋盘范围。',
+    mOccupied: '该位置已有棋子，请重新选择。',
+    mWinFive: '★ 黑方直接形成五连，获得胜利！',
+    mOverline: '× 黑方形成长连（6 子及以上），禁手判负。',
+    mNotFour: '× 这一手不是冲四（活三或闲招），属于 VCT，不符合 VCF。',
+    m33: '× 黑方形成三三禁手，判负。',
+    mOpenFour: '★ VCF 成功：黑方走出活四，白方无法同时封堵两个成五点！',
+    m44: '× 黑方在两个方向同时成四（冲四+冲四、冲四+活四、双活四），属四四禁手，不能走，判负。',
+    mWhiteFive: '× 白方被迫堵在成五点后正好连成五子，黑方失败，VCF 路线无效。',
+    mNoFour: '× 棋盘上已经没有可以冲四的点，黑方无法继续 VCF，判负。',
+    mRushFour: function (d) { return '√ 合法冲四！白方被迫防守至 第 ' + d.r + ' 行、第 ' + d.c + ' 列。'; },
+    turnBlack: '黑先 · 你执黑',
+    turnWhite: '白先 · 你执白',
+    mReadyWhite: '题目已就绪。',
+    mStartWhite: '白先：请连续走出冲四，完成 VCF。',
+    mBlackFiveWin: '× 黑棋有连五机会，黑棋直接连成五子，白方 VCF 失败。',
+    mWhiteDoubleFour: '★ VCF 成功：白方形成双四/活四，黑棋无法全部封堵！',
+    mWhiteForbidden: '★ 抓禁手成功：黑棋被迫防守的点是三三/四四/长连禁手，黑棋不能落子，白方胜！',
+    mWhiteNotFour: '× 这一手不是白方的冲四（活三或闲招），不符合 VCF。',
+    mWhiteNoFour: '× 黑棋防守后，白方已无冲四的点，VCF 失败。',
+    mWhiteRushFour: function (d) { return '√ 合法冲四！黑棋被迫防守至 第 ' + d.r + ' 行、第 ' + d.c + ' 列。'; },
+    mPrepare: '棋谱还在准备，请稍候再点。'
+  },
+  en: {
+    docTitle: '770LSJ · Renju VCF Sprint',
+    sub: 'RIF Renju · VCF Sprint (Black / White first)',
+    anon: 'Anonymous',
+    progress: function (d) { return 'Answered ' + d.n; },
+    stats: function (d) { return 'This run: solved ' + d.solved + ' · answered ' + d.n + ' · time ' + d.time; },
+    player: function (d) { return 'Player: ' + d.name; },
+    playerIdle: 'Not started',
+    remain: function (d) { return 'Remaining ' + d.time; },
+    remainIdle: '60s limit',
+    chainLabel: 'Consecutive fours: ',
+    chainUnit: 'moves',
+    loading: 'Loading puzzles…',
+    preparing: 'Preparing puzzles, please wait…',
+    btnSkip: 'Skip (counts as wrong)',
+    btnEnd: 'End run',
+    lbTitle: 'Leaderboard',
+    lbRefresh: 'Refresh',
+    lbEmpty: 'No records yet',
+    lbNoteIdle: 'Sorted by solved → accuracy → time; best run per player.',
+    lbNoteOnline: 'Online · sorted by solved → accuracy → time; best run per player.',
+    lbNoteLocal: 'Local records (server unreachable): not shared across devices.',
+    hint: 'Play the side shown in the panel (Black for black-first, White for white-first). Every move must be a four. In white-first puzzles, Black must block; if the block point is forbidden (double-three / double-four / overline), White wins at once. Black making five wins. 60s per puzzle.',
+    ovTitleStart: '770LSJ Sprint',
+    ovSubStart: 'Enter a nickname and tap Start: the puzzle appears and the timer starts.',
+    ovNamePh: 'Your nickname',
+    ovFxText: 'Result animations & confetti',
+    ovBtnStart: 'Start run',
+    ovTipStart: '60 seconds per puzzle; timeout counts as a loss and moves on.',
+    ovTitleEnd: 'Run finished',
+    ovSubEnd: function (d) {
+      return d.name + ': solved ' + d.solved + ' / ' + d.n + ', accuracy ' + d.acc + '%, time ' + d.time +
+             (d.rank ? ', rank #' + d.rank : '');
+    },
+    ovBtnAgain: 'Play again',
+    ovTipEnd: "Only each player's best run is kept.",
+    confirmEnd: 'End this run and submit your score?',
+    auto: function (d) { return (d.ok ? '✓ ' : '✗ ') + d.time + ', next puzzle in ' + d.remain + 's'; },
+    fxOk: '✓ Correct',
+    fxFail: '× Wrong',
+    mWhiteWin: '× White had a five in a row available, ignored the four and won — Black loses.',
+    mTimeout: function (d) { return '× Not finished within ' + d.sec + ' seconds — this puzzle is a loss.'; },
+    mReady: 'Puzzle ready.',
+    mSkip: '× Puzzle skipped and counted as wrong.',
+    mStart: 'Black first: keep making fours to complete the VCF.',
+    mGameOver: 'This puzzle is over; the next one starts automatically.',
+    mOutside: 'That move is outside the board.',
+    mOccupied: 'That point is already occupied. Choose another.',
+    mWinFive: '★ Black made five in a row and wins!',
+    mOverline: '× Overline (six or more). Forbidden move — Black loses.',
+    mNotFour: '× That move is not a four (open three or idle move) — it is VCT, not VCF.',
+    m33: '× Double-three forbidden move — Black loses.',
+    mOpenFour: '★ VCF complete: Black made an open four; White cannot block both five-points!',
+    m44: '× Black makes fours in two directions at once (four + four, four + open four, or two open fours) — double-four forbidden move, Black loses.',
+    mWhiteFive: '× White was forced to block the five-point and completed five — Black loses, this VCF line fails.',
+    mNoFour: '× No four is available on the board; Black cannot continue the VCF and loses.',
+    mRushFour: function (d) { return '√ Legal four! White must defend at row ' + d.r + ', column ' + d.c + '.'; },
+    turnBlack: 'Black to move · you play Black',
+    turnWhite: 'White to move · you play White',
+    mReadyWhite: 'Puzzle ready.',
+    mStartWhite: 'White first: keep making fours to complete the VCF.',
+    mBlackFiveWin: '× Black can make five now and wins immediately — White\'s VCF fails.',
+    mWhiteDoubleFour: '★ VCF complete: White made a double four/open four; Black cannot block all five-points!',
+    mWhiteForbidden: '★ Forbidden-point win: the only block is a double-three/double-four/overline point, so Black cannot play — White wins!',
+    mWhiteNotFour: '× That move is not a White four (open three or idle move) — not VCF.',
+    mWhiteNoFour: '× After Black\'s block, White has no four left — VCF fails.',
+    mWhiteRushFour: function (d) { return '√ Legal four! Black must defend at row ' + d.r + ', column ' + d.c + '.'; },
+    mPrepare: 'Puzzles are still loading, please wait a moment.'
+  },
+  ja: {
+    docTitle: '770LSJ · 連珠 連続四',
+    sub: 'RIF 連珠 · VCF スプリント（黒先 / 白先）',
+    anon: '匿名プレイヤー',
+    progress: function (d) { return '回答 ' + d.n + ' 問'; },
+    stats: function (d) { return '今回：正解 ' + d.solved + ' · 回答 ' + d.n + ' · 時間 ' + d.time; },
+    player: function (d) { return 'プレイヤー：' + d.name; },
+    playerIdle: '未開始',
+    remain: function (d) { return '残り ' + d.time; },
+    remainIdle: '制限 60 秒',
+    chainLabel: '連続四：',
+    chainUnit: '手',
+    loading: '問題を読み込み中…',
+    preparing: '問題を準備中です。少々お待ちください…',
+    btnSkip: 'この問題をスキップ（不正解）',
+    btnEnd: 'このラウンドを終了',
+    lbTitle: 'ランキング',
+    lbRefresh: '更新',
+    lbEmpty: '記録なし',
+    lbNoteIdle: '正解数 → 正解率 → 時間の順。各プレイヤーの最高記録のみ。',
+    lbNoteOnline: 'オンライン・正解数 → 正解率 → 時間。各プレイヤーの最高記録のみ。',
+    lbNoteLocal: 'この端末の記録（サーバー未接続）：他の端末とは共有されません。',
+    hint: 'パネルに表示された手番の石を打ちます（黒先なら黒、白先なら白）。毎手は四でなければなりません。白先では黒が防御を強いられ、防御点が禁手（三三・四四・長連）なら白の即勝ち、黒が五連を作れる場合は白の負けです。1問 60 秒。',
+    ovTitleStart: '770LSJ スプリント',
+    ovSubStart: 'ニックネームを入力して「開始」を押すと、問題が表示されタイマーが始まります。',
+    ovNamePh: 'ニックネーム',
+    ovFxText: '正誤アニメーションと紙吹雪',
+    ovBtnStart: '開始',
+    ovTipStart: '1問 60 秒。時間切れは不正解となり次の問題へ進みます。',
+    ovTitleEnd: 'ラウンド終了',
+    ovSubEnd: function (d) {
+      return d.name + '：正解 ' + d.solved + ' / 回答 ' + d.n + ' 問、正解率 ' + d.acc + '%、時間 ' + d.time +
+             (d.rank ? '、現在 ' + d.rank + ' 位' : '');
+    },
+    ovBtnAgain: 'もう一度',
+    ovTipEnd: 'ランキングは各プレイヤーの最高記録のみ保持します。',
+    confirmEnd: 'ラウンドを終了して成績を送信しますか？',
+    auto: function (d) { return (d.ok ? '✓ ' : '✗ ') + d.time + '、' + d.remain + ' 秒後に次の問題へ'; },
+    fxOk: '✓ 正解',
+    fxFail: '× 不正解',
+    mWhiteWin: '× 白に五連の機会があり、四を防がず五連を完成 — 黒の負け。',
+    mTimeout: function (d) { return '× ' + d.sec + ' 秒以内に完成できず、この問題は時間切れで負け。'; },
+    mReady: '問題の準備ができました。',
+    mSkip: '× この問題をスキップしました（不正解扱い）。',
+    mStart: '黒先：連続して四を打ち、VCF を完成させてください。',
+    mGameOver: 'この問題は終了しました。まもなく次の問題へ進みます。',
+    mOutside: '着手位置が盤外です。',
+    mOccupied: 'その位置には既に石があります。別の点を選んでください。',
+    mWinFive: '★ 黒が五連を完成し、勝利！',
+    mOverline: '× 長連（6 子以上）の禁手 — 黒の負け。',
+    mNotFour: '× この手は四ではありません（活三または待ち手）。VCT であり VCF ではありません。',
+    m33: '× 三三の禁手 — 黒の負け。',
+    mOpenFour: '★ VCF 成功：黒が活四を打ち、白は二つの五点を同時に防げません！',
+    m44: '× 黒が二方向に同時に四を作る（四＋四、四＋活四、活四×2）四四の禁手 — 黒の負け。',
+    mWhiteFive: '× 白が五点を防いだ手でちょうど五連を完成 — 黒の負け、この VCF は失敗。',
+    mNoFour: '× 盤上に四を打てる点がなく、黒は VCF を続けられません — 負け。',
+    mRushFour: function (d) { return '√ 合法な四！白は ' + d.r + ' 行 ' + d.c + ' 列への防御を強いられます。'; },
+    turnBlack: '黒先 · あなたは黒',
+    turnWhite: '白先 · あなたは白',
+    mReadyWhite: '問題の準備ができました。',
+    mStartWhite: '白先：連続して四を打ち、VCF を完成させてください。',
+    mBlackFiveWin: '× 黒に五連の機会があり、黒が先に五連を完成 — 白の VCF 失敗。',
+    mWhiteDoubleFour: '★ VCF 成功：白が四四/活四を作り、黒は全ての五点を防げません！',
+    mWhiteForbidden: '★ 禁手勝ち：黒の防御点が三三/四四/長連の禁手で、黒は打てません — 白の勝ち！',
+    mWhiteNotFour: '× この手は白の四ではありません（活三または待ち手）。VCF ではありません。',
+    mWhiteNoFour: '× 黒の防御後、白に四を打てる点がなく VCF 失敗。',
+    mWhiteRushFour: function (d) { return '√ 合法な四！黒は ' + d.r + ' 行 ' + d.c + ' 列を防御します。'; },
+    mPrepare: '問題を準備中です。少し待ってからもう一度押してください。'
+  },
+  ko: {
+    docTitle: '770LSJ · 렌주 연속 사',
+    sub: 'RIF 렌주 · VCF 스프린트 (흑 선수 / 백 선수)',
+    anon: '익명 플레이어',
+    progress: function (d) { return d.n + '문제 답변'; },
+    stats: function (d) { return '이번 판: 정답 ' + d.solved + ' · 답변 ' + d.n + ' · 시간 ' + d.time; },
+    player: function (d) { return '플레이어: ' + d.name; },
+    playerIdle: '시작 전',
+    remain: function (d) { return '남은 시간 ' + d.time; },
+    remainIdle: '60초 제한',
+    chainLabel: '연속 사: ',
+    chainUnit: '수',
+    loading: '기보를 불러오는 중…',
+    preparing: '기보를 준비하는 중입니다. 잠시만 기다려 주세요…',
+    btnSkip: '이 문제 건너뛰기 (오답)',
+    btnEnd: '이번 판 종료',
+    lbTitle: '순위',
+    lbRefresh: '새로고침',
+    lbEmpty: '기록 없음',
+    lbNoteIdle: '정답 수 → 정답률 → 시간 순, 플레이어당 최고 기록만 유지.',
+    lbNoteOnline: '온라인 순위 · 정답 수 → 정답률 → 시간, 플레이어당 최고 기록만 유지.',
+    lbNoteLocal: '이 기기 기록(서버 미연결): 다른 기기와 공유되지 않습니다.',
+    hint: '패널에 표시된 선수 돌을 둡니다(흑 선수면 흑, 백 선수면 백). 매 수는 반드시 사여야 합니다. 백 선수에서는 흑이 방어를 강요당하고, 방어점이 금수(삼삼/사사/장연)라면 백이 즉시 승리하며, 흑이 오연을 만들 수 있으면 백이 패배합니다. 문제당 60초.',
+    ovTitleStart: '770LSJ 스프린트',
+    ovSubStart: '닉네임을 입력하고 「시작」을 누르면 문제가 나타나고 타이머가 시작됩니다.',
+    ovNamePh: '닉네임',
+    ovFxText: '정오답 애니메이션과 꽃가루',
+    ovBtnStart: '시작',
+    ovTipStart: '문제당 60초, 시간 초과 시 오답 처리 후 다음 문제로 넘어갑니다.',
+    ovTitleEnd: '판 종료',
+    ovSubEnd: function (d) {
+      return d.name + ': 정답 ' + d.solved + ' / 답변 ' + d.n + ', 정답률 ' + d.acc + '%, 시간 ' + d.time +
+             (d.rank ? ', 현재 ' + d.rank + '위' : '');
+    },
+    ovBtnAgain: '다시 하기',
+    ovTipEnd: '순위에는 플레이어별 최고 기록만 남깁니다.',
+    confirmEnd: '이번 판을 종료하고 기록을 제출할까요?',
+    auto: function (d) { return (d.ok ? '✓ ' : '✗ ') + d.time + ', ' + d.remain + '초 후 다음 문제'; },
+    fxOk: '✓ 정답',
+    fxFail: '× 오답',
+    mWhiteWin: '× 백에게 오연 기회가 있어 사를 막지 않고 오연을 완성했습니다 — 흑 패배.',
+    mTimeout: function (d) { return '× ' + d.sec + '초 안에 완성하지 못해 시간 초과로 패배했습니다.'; },
+    mReady: '문제가 준비되었습니다.',
+    mSkip: '× 이 문제를 건너뛰었으며 오답으로 처리됩니다.',
+    mStart: '흑 선수: 계속 사를 두어 VCF를 완성하세요.',
+    mGameOver: '이 문제는 종료되었습니다. 곧 다음 문제로 넘어갑니다.',
+    mOutside: '착점이 바둑판 범위를 벗어났습니다.',
+    mOccupied: '해당 위치에 이미 돌이 있습니다. 다른 점을 선택하세요.',
+    mWinFive: '★ 흑이 오연을 완성하여 승리!',
+    mOverline: '× 장연(6자 이상) 금수 — 흑 패배.',
+    mNotFour: '× 이 수는 사가 아닙니다(활삼 또는 유효하지 않은 수). VCT이며 VCF가 아닙니다.',
+    m33: '× 삼삼 금수 — 흑 패배.',
+    mOpenFour: '★ VCF 성공: 흑이 활사를 두어 백이 두 오점을 동시에 막을 수 없습니다!',
+    m44: '× 흑이 두 방향에서 동시에 사를 만드는(사+사, 사+활사, 활사 두 개) 사사 금수 — 흑 패배.',
+    mWhiteFive: '× 백이 오점을 막으면서 정확히 오연을 완성했습니다 — 흑 패배, 이 VCF 경로는 실패.',
+    mNoFour: '× 바둑판에 사를 둘 점이 없어 흑이 VCF를 이어갈 수 없습니다 — 패배.',
+    mRushFour: function (d) { return '√ 합법적인 사! 백은 ' + d.r + '행 ' + d.c + '열을 방어해야 합니다.'; },
+    turnBlack: '흑 선수 · 당신은 흑',
+    turnWhite: '백 선수 · 당신은 백',
+    mReadyWhite: '문제가 준비되었습니다.',
+    mStartWhite: '백 선수: 계속 사를 두어 VCF를 완성하세요.',
+    mBlackFiveWin: '× 흑이 오연을 만들 수 있어 먼저 승리 — 백의 VCF 실패.',
+    mWhiteDoubleFour: '★ VCF 성공: 백이 사사/활사를 만들어 흑이 모든 오점을 막을 수 없습니다!',
+    mWhiteForbidden: '★ 금수 승리: 흑의 방어점이 삼삼/사사/장연 금수여서 흑이 둘 수 없습니다 — 백 승리!',
+    mWhiteNotFour: '× 이 수는 백의 사가 아닙니다(활삼 또는 유효하지 않은 수). VCF가 아닙니다.',
+    mWhiteNoFour: '× 흑의 방어 후 백이 사를 둘 점이 없어 VCF 실패.',
+    mWhiteRushFour: function (d) { return '√ 합법적인 사! 흑은 ' + d.r + '행 ' + d.c + '열을 방어합니다.'; },
+    mPrepare: '기보를 준비 중입니다. 잠시 후 다시 눌러 주세요.'
+  }
+};
+
+function t(key, d) {
+  var pack = TEXT[lang] || TEXT.zh;
+  var v = pack[key];
+  if (v === undefined) v = TEXT.zh[key];
+  return (typeof v === 'function') ? v(d || {}) : (v || '');
+}
+
+var COLORS = {
+  WIN_FIVE: '#168a4a',
+  WIN_OPEN_FOUR: '#168a4a',
+  RUSH_FOUR: '#c47814',
+  LOSE_NO_FOUR: '#c43030',
+  FAIL_WHITE_FIVE: '#c43030',
+  FAIL_WHITE_WIN: '#c43030',
+  FAIL_NOT_FOUR_VCT: '#c85a28',
+  FAIL_FORBIDDEN_33: '#c43030',
+  FAIL_FORBIDDEN_44: '#c43030',
+  FAIL_FORBIDDEN_OVERLINE: '#c43030',
+  FAIL_OCCUPIED: '#be781e',
+  FAIL_TIMEOUT: '#c43030',
+  FAIL_SKIP: '#c43030',
+  FAIL_GAME_OVER: '#6e6e6e',
+  FAIL_BLACK_WIN: '#c43030'
+};
+var DEFAULT_COLOR = '#5a4a2c';
+
+/* ============================================================
+ *  棋盘规则
+ * ============================================================ */
+var board = [];
+var puzzles = [];
+
+var state = {
+  gameOver: false,
+  solved: false,
+  chainLength: 0,
+  failCount: 0,
+  puzzleIndex: 0,
+  turn: 'b',              /* 本题先手：b=黑先，w=白先 */
+  lastBlack: null,
+  lastWhite: null,
+  moves: [],             /* 本局手顺：{r, c, p}，用于在棋子上标 1,2,3… */
+  started: false,        /* 本题是否已开始：开始本局后立即为 true，未开始时题目不可见、不计时 */
+  startTime: 0,
+  elapsedMs: 0,
+  finishTime: 0,
+  finishReason: null,
+  pendingNext: false,
+  pendingNextTime: 0,
+  messageKey: 'loading',   /* 文案 key，切换语言时实时重算 */
+  messageArgs: null,
+  messageColor: DEFAULT_COLOR
+};
+
+/* 一局竞速成绩：从「开始本局」到「结束本局」或答完最后一题 */
+var run = {
+  active: false,
+  finished: false,
+  name: '',
+  attempts: 0,
+  solved: 0,
+  totalMs: 0,
+  order: []
+};
+
+/* 排行榜：服务端可用时为在线共享，否则自动退回本机记录 */
+var leaderboard = [];
+var leaderboardOnline = false;
+var lbLoaded = false;   /* 是否已尝试读取过排行榜（决定提示文案） */
+var LB_KEY = 'renju_vcf_leaderboard';
+var NAME_KEY = 'renju_vcf_name';
+var FX_KEY = '770lsj_fx';
+var fxEnabled = true;
+try { fxEnabled = localStorage.getItem(FX_KEY) !== '0'; } catch (e) { /* 隐私模式忽略 */ }
+
+function inside(r, c) { return r >= 0 && r < N && c >= 0 && c < N; }
+
+function runLength(r, c, dr, dc, player) {
+  if (!inside(r, c) || board[r][c] !== player) return 0;
+  var len = 1;
+  var signs = [1, -1];
+  for (var s = 0; s < 2; s++) {
+    var sign = signs[s];
+    var nr = r + dr * sign, nc = c + dc * sign;
+    while (inside(nr, nc) && board[nr][nc] === player) {
+      len++;
+      nr += dr * sign;
+      nc += dc * sign;
+    }
+  }
+  return len;
+}
+
+function hasExactFive(r, c, player) {
+  for (var i = 0; i < DIRS.length; i++) {
+    if (runLength(r, c, DIRS[i][0], DIRS[i][1], player) === 5) return true;
+  }
+  return false;
+}
+
+function hasOverline(r, c) {
+  for (var i = 0; i < DIRS.length; i++) {
+    if (runLength(r, c, DIRS[i][0], DIRS[i][1], BLACK) >= 6) return true;
+  }
+  return false;
+}
+
+/* 经过 (r,c) 是否连成 5 子及以上（白方无禁手，>= 5 即胜） */
+function hasFiveOrMore(r, c, player) {
+  for (var i = 0; i < DIRS.length; i++) {
+    if (runLength(r, c, DIRS[i][0], DIRS[i][1], player) >= 5) return true;
+  }
+  return false;
+}
+
+/* 本手形成的全部成五点，以及这些成五点分别落在哪个方向（player 默认黑棋） */
+function fourInfo(row, col, player) {
+  player = player || BLACK;
+  var found = {};
+  var points = [];
+  var dirs = {};
+  for (var d = 0; d < DIRS.length; d++) {
+    var dr = DIRS[d][0], dc = DIRS[d][1];
+    for (var start = -4; start <= 0; start++) {
+      var cells = [];
+      var ok = true;
+      for (var i = 0; i < 5; i++) {
+        var rr = row + dr * (start + i), cc = col + dc * (start + i);
+        if (!inside(rr, cc)) { ok = false; break; }
+        cells.push([rr, cc]);
+      }
+      if (!ok) continue;
+
+      var stones = 0, empties = 0, er = -1, ec = -1;
+      for (var k = 0; k < 5; k++) {
+        var v = board[cells[k][0]][cells[k][1]];
+        if (v === player) stones++;
+        else if (v === EMPTY) { empties++; er = cells[k][0]; ec = cells[k][1]; }
+      }
+      if (stones !== 4 || empties !== 1) continue;
+
+      board[er][ec] = player;
+      var exact = runLength(er, ec, dr, dc, player) === 5;
+      board[er][ec] = EMPTY;
+      if (!exact) continue;
+
+      var key = er + ',' + ec;
+      if (!found[key]) { found[key] = true; points.push([er, ec]); }
+      dirs[d] = true;
+    }
+  }
+  var dirCount = 0;
+  for (var key2 in dirs) { if (dirs[key2]) dirCount++; }
+  return { points: points, dirs: dirs, dirCount: dirCount };
+}
+
+/* 活四必须是 _XXXX_ 且两端落下都"恰好"五连；一头变长连就只是冲四 */
+function hasOpenFourWindow(row, col, dr, dc, extra) {
+  for (var start = -5; start <= 0; start++) {
+    var cells = [];
+    var ok = true;
+    for (var i = 0; i < 6; i++) {
+      var rr = row + dr * (start + i), cc = col + dc * (start + i);
+      if (!inside(rr, cc)) { ok = false; break; }
+      cells.push([rr, cc]);
+    }
+    if (!ok) continue;
+
+    var pattern = [EMPTY, BLACK, BLACK, BLACK, BLACK, EMPTY];
+    for (var k = 0; k < 6; k++) {
+      if (board[cells[k][0]][cells[k][1]] !== pattern[k]) { ok = false; break; }
+    }
+    if (!ok) continue;
+
+    var inFour = false;
+    for (var m = 1; m <= 4; m++) {
+      if (cells[m][0] === row && cells[m][1] === col) { inFour = true; break; }
+    }
+    if (!inFour) continue;
+    if (extra && !((cells[1][0] === extra[0] && cells[1][1] === extra[1]) ||
+                   (cells[2][0] === extra[0] && cells[2][1] === extra[1]) ||
+                   (cells[3][0] === extra[0] && cells[3][1] === extra[1]) ||
+                   (cells[4][0] === extra[0] && cells[4][1] === extra[1]))) continue;
+
+    var both = true;
+    var ends = [cells[0], cells[5]];
+    for (var e = 0; e < 2; e++) {
+      var er = ends[e][0], ec = ends[e][1];
+      board[er][ec] = BLACK;
+      var exact = runLength(er, ec, dr, dc, BLACK) === 5;
+      board[er][ec] = EMPTY;
+      if (!exact) { both = false; break; }
+    }
+    if (both) return true;
+  }
+  return false;
+}
+
+function hasOpenFour(row, col) {
+  for (var i = 0; i < DIRS.length; i++) {
+    if (hasOpenFourWindow(row, col, DIRS[i][0], DIRS[i][1], null)) return true;
+  }
+  return false;
+}
+
+function isLiveThreeInDir(row, col, dr, dc) {
+  for (var k = -4; k <= 4; k++) {
+    if (k === 0) continue;
+    var er = row + dr * k, ec = col + dc * k;
+    if (!inside(er, ec) || board[er][ec] !== EMPTY) continue;
+    board[er][ec] = BLACK;
+    var ok = hasOpenFourWindow(row, col, dr, dc, [er, ec]);
+    board[er][ec] = EMPTY;
+    if (ok) return true;
+  }
+  return false;
+}
+
+function countLiveThrees(row, col) {
+  var n = 0;
+  for (var i = 0; i < DIRS.length; i++) {
+    if (isLiveThreeInDir(row, col, DIRS[i][0], DIRS[i][1])) n++;
+  }
+  return n;
+}
+
+/* 假设落子后的完整分类；返回 {code, points}，棋盘已还原 */
+function classify(row, col) {
+  board[row][col] = BLACK;
+  try {
+    if (hasExactFive(row, col, BLACK)) return { code: WIN_FIVE, points: [] };
+    if (hasOverline(row, col)) return { code: FAIL_FORBIDDEN_OVERLINE, points: [] };
+
+    var info = fourInfo(row, col);
+    var wp = info.points;
+    if (wp.length === 0) return { code: FAIL_NOT_FOUR_VCT, points: wp };
+    if (countLiveThrees(row, col) >= 2) return { code: FAIL_FORBIDDEN_33, points: wp };
+    /* 两个不同方向同时成四 = 四四禁手（冲四+冲四、冲四+活四、活四+活四都不能走）。 */
+    if (info.dirCount >= 2) return { code: FAIL_FORBIDDEN_44, points: wp };
+    /* 只剩单一方向：同一线上有两个成五点才是活四（胜利），一个点只是冲四。 */
+    if (wp.length >= 2) return { code: WIN_OPEN_FOUR, points: wp };
+    return { code: RUSH_FOUR, points: wp };
+  } finally {
+    board[row][col] = EMPTY;
+  }
+}
+
+/* 白方落子分类：白棋没有禁手，双四/活四（>=2 个成五点）黑棋堵不住，直接胜 */
+function classifyWhite(row, col) {
+  board[row][col] = WHITE;
+  try {
+    if (hasFiveOrMore(row, col, WHITE)) return { code: WIN_FIVE, points: [] };
+    var info = fourInfo(row, col, WHITE);
+    if (info.points.length === 0) return { code: FAIL_NOT_FOUR_VCT, points: info.points };
+    if (info.points.length >= 2) return { code: WIN_OPEN_FOUR, points: info.points };
+    return { code: RUSH_FOUR, points: info.points };
+  } finally {
+    board[row][col] = EMPTY;
+  }
+}
+
+/* 黑棋是否有一手直接连五：五连优先，黑棋会先赢，白方 VCF 立即失败 */
+function blackCanWinNow() {
+  for (var r = 0; r < N; r++) {
+    for (var c = 0; c < N; c++) {
+      if (board[r][c] !== EMPTY) continue;
+      board[r][c] = BLACK;
+      var win = hasExactFive(r, c, BLACK);
+      board[r][c] = EMPTY;
+      if (win) return true;
+    }
+  }
+  return false;
+}
+
+function candidatePoints(player) {
+  player = player || BLACK;
+  var seen = {}, list = [];
+  for (var r = 0; r < N; r++) {
+    for (var c = 0; c < N; c++) {
+      if (board[r][c] !== player) continue;
+      for (var dr = -1; dr <= 1; dr++) {
+        for (var dc = -1; dc <= 1; dc++) {
+          if (dr === 0 && dc === 0) continue;
+          var nr = r + dr, nc = c + dc;
+          if (!inside(nr, nc) || board[nr][nc] !== EMPTY) continue;
+          var key = nr + ',' + nc;
+          if (!seen[key]) { seen[key] = true; list.push([nr, nc]); }
+        }
+      }
+    }
+  }
+  return list;
+}
+
+function hasVcfContinuation() {
+  var pts = candidatePoints();
+  for (var i = 0; i < pts.length; i++) {
+    var res = classify(pts[i][0], pts[i][1]);
+    if (res.code === RUSH_FOUR || res.code === WIN_FIVE || res.code === WIN_OPEN_FOUR) return true;
+  }
+  return false;
+}
+
+/* 白方是否还有能冲四/取胜的下一手 */
+function hasWhiteContinuation() {
+  var pts = candidatePoints(WHITE);
+  for (var i = 0; i < pts.length; i++) {
+    var res = classifyWhite(pts[i][0], pts[i][1]);
+    if (res.code === RUSH_FOUR || res.code === WIN_FIVE || res.code === WIN_OPEN_FOUR) return true;
+  }
+  return false;
+}
+
+function findWhiteWinPoint() {
+  for (var r = 0; r < N; r++) {
+    for (var c = 0; c < N; c++) {
+      if (board[r][c] !== EMPTY) continue;
+      board[r][c] = WHITE;
+      var win = hasFiveOrMore(r, c, WHITE);
+      board[r][c] = EMPTY;
+      if (win) return [r, c];
+    }
+  }
+  return null;
+}
+
+/* 白方有连五机会就不必防守，直接连五取胜；返回 true 表示本题已判负 */
+function whiteWinsImmediately() {
+  var pt = findWhiteWinPoint();
+  if (!pt) return false;
+  board[pt[0]][pt[1]] = WHITE;
+  state.lastWhite = pt;
+  state.moves.push({ r: pt[0], c: pt[1], p: WHITE });
+  state.gameOver = true;
+  state.solved = false;
+  finalizeGameOver();
+  setMessage(FAIL_WHITE_WIN, 'mWhiteWin');
+  return true;
+}
+
+/* ============================================================
+ *  计时 / 状态
+ * ============================================================ */
+function now() { return performance.now(); }
+
+function formatTime(ms) {
+  ms = Math.max(0, ms);
+  var totalS = Math.floor(ms / 1000);
+  var remMs = Math.floor(ms) % 1000;
+  if (totalS >= 60) {
+    var m = Math.floor(totalS / 60), s = totalS % 60;
+    return m + ':' + (s < 10 ? '0' + s : s);
+  }
+  var frac = Math.floor(remMs / 10);
+  return totalS + '.' + (frac < 10 ? '0' + frac : frac) + 's';
+}
+
+function finalizeGameOver(limitMs) {
+  state.finishTime = now();
+  state.elapsedMs = Math.round(state.finishTime - state.startTime);
+  if (limitMs) {
+    /* 超时按整 60 秒计，判定那几毫秒不算进累计用时 */
+    state.elapsedMs = limitMs;
+  }
+  if (state.solved) {
+    state.finishReason = 'solved';
+    run.solved++;
+  } else {
+    state.finishReason = 'failed';
+  }
+  run.totalMs += state.elapsedMs;
+  state.pendingNext = true;
+  state.pendingNextTime = now() + 1500;
+  playResultFx(state.solved);
+}
+
+/* 每题 60 秒未完成 → 自动判负并切下一题；等待切题的时间不计入用时 */
+function timeoutFail() {
+  state.gameOver = true;
+  state.solved = false;
+  setMessage(FAIL_TIMEOUT, 'mTimeout', { sec: TIME_LIMIT_MS / 1000 });
+  finalizeGameOver(TIME_LIMIT_MS);
+}
+
+function setMessage(code, key, args) {
+  state.messageKey = key || '';
+  state.messageArgs = args || null;
+  state.messageColor = COLORS[code] || DEFAULT_COLOR;
+  needsRedraw = true;
+}
+
+/* ============================================================
+ *  落子流程
+ * ============================================================ */
+function loadPosition(blacks, whites, turn) {
+  state.turn = turn === 'w' ? 'w' : 'b';
+  board = [];
+  for (var r = 0; r < N; r++) {
+    var row = [];
+    for (var c = 0; c < N; c++) row.push(EMPTY);
+    board.push(row);
+  }
+  for (var i = 0; i < blacks.length; i++) board[blacks[i][0]][blacks[i][1]] = BLACK;
+  for (var j = 0; j < whites.length; j++) board[whites[j][0]][whites[j][1]] = WHITE;
+
+  state.gameOver = false;
+  state.solved = false;
+  state.chainLength = 0;
+  state.failCount = 0;
+  state.lastBlack = null;
+  state.lastWhite = null;
+  state.moves = [];
+  state.started = false;
+  state.startTime = 0;
+  state.elapsedMs = 0;
+  state.finishTime = 0;
+  state.finishReason = null;
+  state.pendingNext = false;
+  state.pendingNextTime = 0;
+  hideResultFx();
+  needsRedraw = true;
+}
+
+/* 每局随机抽 15 题：随机洗牌后取前 ROUND_SIZE 个，局内不重复 */
+function buildOrder() {
+  var idx = [];
+  for (var i = 0; i < puzzles.length; i++) idx.push(i);
+  for (var k = idx.length - 1; k > 0; k--) {
+    var j = Math.floor(Math.random() * (k + 1));
+    var tmp = idx[k];
+    idx[k] = idx[j];
+    idx[j] = tmp;
+  }
+  return idx.slice(0, ROUND_SIZE);
+}
+
+/* 题目随机转向（90/180/270/360 度）：同一道题换个方向出现，规则完全等价 */
+function rotatePoint(r, c, deg) {
+  if (deg === 90) return [c, N - 1 - r];
+  if (deg === 180) return [N - 1 - r, N - 1 - c];
+  if (deg === 270) return [N - 1 - c, r];
+  return [r, c];
+}
+
+function rotateStones(list, deg) {
+  var out = [];
+  for (var i = 0; i < list.length; i++) {
+    out.push(rotatePoint(list[i][0], list[i][1], deg));
+  }
+  return out;
+}
+
+/* 当前题：题目序号取自本局的随机顺序 */
+function currentPuzzle() {
+  var real = run.order.length ? run.order[state.puzzleIndex] : state.puzzleIndex;
+  return puzzles[real];
+}
+
+function loadPuzzle(index) {
+  if (!puzzles.length) return;
+  if (!run.order.length) run.order = buildOrder();
+  var total = run.order.length || puzzles.length;
+  state.puzzleIndex = ((index % total) + total) % total;
+  var p = currentPuzzle();
+  var deg = [90, 180, 270, 360][Math.floor(Math.random() * 4)];
+  loadPosition(rotateStones(p.blacks, deg), rotateStones(p.whites, deg), p.turn);
+  setMessage(null, state.turn === 'w' ? 'mReadyWhite' : 'mReady');
+}
+
+/* 重做按钮已取消：打错或做不动时用「跳过本题」，该题按答错计 */
+function skipPuzzle() {
+  if (!run.active || !state.started || state.gameOver) return;
+  state.gameOver = true;
+  state.solved = false;
+  setMessage(FAIL_SKIP, 'mSkip');
+  finalizeGameOver();
+  updateText();
+}
+
+/* ============================================================
+ *  竞速流程：开始本局 → 每题按开始 → 判负/取胜 → 自动下一题
+ * ============================================================ */
+function startRun() {
+  var input = document.getElementById('ovName');
+  var name = (input.value || '').replace(/\s+/g, ' ').trim();
+  if (!name) name = t('anon');
+  if (name.length > 16) name = name.slice(0, 16);
+  try { localStorage.setItem(NAME_KEY, name); } catch (e) { /* 隐私模式忽略 */ }
+
+  run.active = true;
+  run.finished = false;
+  run.name = name;
+  run.attempts = 0;
+  run.solved = 0;
+  run.totalMs = 0;
+  run.order = buildOrder();
+
+  loadPuzzle(0);
+  startPuzzle();
+}
+
+/* 开始当前题：题目出现并开始计时（只在「开始本局」时触发一次） */
+function startPuzzle() {
+  if (!run.active || state.started) return;
+  state.started = true;
+  state.startTime = now();
+  state.elapsedMs = 0;
+  run.attempts++;
+  setMessage(null, state.turn === 'w' ? 'mStartWhite' : 'mStart');
+  hideOverlay();
+  updateText();
+}
+
+/* 本题结束后的 1.5 秒：自动进入下一题；做完 15 题自动结束并回到主页面统计成绩 */
+function advancePuzzle() {
+  if (!run.active) return;
+  var total = run.order.length || puzzles.length;
+  if (state.puzzleIndex + 1 >= total) { finishRun(); return; }
+  loadPuzzle(state.puzzleIndex + 1);
+  needsRedraw = true;
+  startPuzzle();
+  updateText();
+}
+
+function finishRun() {
+  if (!run.active) return;
+  run.active = false;
+  run.finished = true;
+  state.pendingNext = false;   /* 结束本局：停止「进入下一题」倒计时 */
+  submitRecord();
+  updateOverlay();
+  updateText();
+}
+
+function endRun() {
+  if (!run.active) return;
+  if (run.attempts > 0 && !window.confirm(t('confirmEnd'))) return;
+  finishRun();
+}
+
+function tryBlackMove(row, col) {
+  if (state.gameOver) { setMessage(FAIL_GAME_OVER, 'mGameOver'); return FAIL_GAME_OVER; }
+  if (!inside(row, col)) { setMessage(FAIL_OCCUPIED, 'mOutside'); return FAIL_OCCUPIED; }
+  if (board[row][col] !== EMPTY) { setMessage(FAIL_OCCUPIED, 'mOccupied'); return FAIL_OCCUPIED; }
+
+  var res = classify(row, col);
+  var wp = res.points;
+
+  if (res.code === WIN_FIVE) {
+    board[row][col] = BLACK;
+    state.lastBlack = [row, col];
+    state.moves.push({ r: row, c: col, p: BLACK });
+    playStoneSound();
+    state.gameOver = true;
+    state.solved = true;
+    finalizeGameOver();
+    setMessage(WIN_FIVE, 'mWinFive');
+    return WIN_FIVE;
+  }
+
+  if (res.code === FAIL_FORBIDDEN_OVERLINE) {
+    state.failCount++;
+    setMessage(FAIL_FORBIDDEN_OVERLINE, 'mOverline');
+    return FAIL_FORBIDDEN_OVERLINE;
+  }
+
+  if (res.code === FAIL_NOT_FOUR_VCT) {
+    state.failCount++;
+    setMessage(FAIL_NOT_FOUR_VCT, 'mNotFour');
+    return FAIL_NOT_FOUR_VCT;
+  }
+
+  if (res.code === FAIL_FORBIDDEN_33) {
+    state.failCount++;
+    setMessage(FAIL_FORBIDDEN_33, 'm33');
+    return FAIL_FORBIDDEN_33;
+  }
+
+  if (res.code === WIN_OPEN_FOUR) {
+    board[row][col] = BLACK;
+    state.lastBlack = [row, col];
+    state.moves.push({ r: row, c: col, p: BLACK });
+    /* 活四之前白方若已能连五，白方先连五取胜 */
+    if (whiteWinsImmediately()) return FAIL_WHITE_WIN;
+    playStoneSound();
+    state.gameOver = true;
+    state.solved = true;
+    finalizeGameOver();
+    setMessage(WIN_OPEN_FOUR, 'mOpenFour');
+    return WIN_OPEN_FOUR;
+  }
+
+  if (res.code === FAIL_FORBIDDEN_44) {
+    state.failCount++;
+    setMessage(FAIL_FORBIDDEN_44, 'm44');
+    return FAIL_FORBIDDEN_44;
+  }
+
+  /* 唯一成五点 → 合法冲四，白方防守 */
+  board[row][col] = BLACK;
+  state.lastBlack = [row, col];
+  state.moves.push({ r: row, c: col, p: BLACK });
+
+  /* 白方若自己有连五的机会，就不必防这个冲四，直接连五取胜，黑方判负 */
+  if (whiteWinsImmediately()) return FAIL_WHITE_WIN;
+
+  var wr = wp[0][0], wc = wp[0][1];
+  board[wr][wc] = WHITE;
+  state.lastWhite = [wr, wc];
+
+  /* 白方被迫堵住唯一的成五点。只有这个堵点恰好让白方连成五子才算失败；
+     白方只是形成自己的冲四则不影响，黑方可以继续冲四反压回去。 */
+  if (hasFiveOrMore(wr, wc, WHITE)) {
+    board[wr][wc] = EMPTY;
+    state.lastWhite = null;
+    board[row][col] = EMPTY;
+    state.lastBlack = null;
+    state.failCount++;
+    setMessage(FAIL_WHITE_FIVE, 'mWhiteFive');
+    return FAIL_WHITE_FIVE;
+  }
+
+  state.moves.push({ r: wr, c: wc, p: WHITE });
+  state.chainLength++;
+  playStoneSound();
+
+  if (!hasVcfContinuation()) {
+    state.gameOver = true;
+    state.solved = false;
+    finalizeGameOver();
+    setMessage(LOSE_NO_FOUR, 'mNoFour');
+    return LOSE_NO_FOUR;
+  }
+
+  setMessage(RUSH_FOUR, 'mRushFour', { r: wr + 1, c: wc + 1 });
+  needsRedraw = true;
+  return RUSH_FOUR;
+}
+
+/* 白先题：玩家执白，每一手都要冲四；黑棋被迫防守，堵点若是禁手则黑棋不能落子 */
+function tryWhiteMove(row, col) {
+  if (state.gameOver) { setMessage(FAIL_GAME_OVER, 'mGameOver'); return FAIL_GAME_OVER; }
+  if (!inside(row, col)) { setMessage(FAIL_OCCUPIED, 'mOutside'); return FAIL_OCCUPIED; }
+  if (board[row][col] !== EMPTY) { setMessage(FAIL_OCCUPIED, 'mOccupied'); return FAIL_OCCUPIED; }
+
+  var res = classifyWhite(row, col);
+  if (res.code === FAIL_NOT_FOUR_VCT) {
+    state.failCount++;
+    setMessage(FAIL_NOT_FOUR_VCT, 'mWhiteNotFour');
+    return FAIL_NOT_FOUR_VCT;
+  }
+
+  board[row][col] = WHITE;
+  state.lastWhite = [row, col];
+  state.moves.push({ r: row, c: col, p: WHITE });
+  playStoneSound();
+  needsRedraw = true;
+
+  if (res.code === WIN_FIVE) {
+    state.gameOver = true;
+    state.solved = true;
+    finalizeGameOver();
+    setMessage(WIN_FIVE, 'mWinFive');
+    return WIN_FIVE;
+  }
+
+  /* 黑棋自己能连五 → 黑棋直接赢，白方这条线失败 */
+  if (blackCanWinNow()) {
+    state.gameOver = true;
+    state.solved = false;
+    finalizeGameOver();
+    setMessage(FAIL_BLACK_WIN, 'mBlackFiveWin');
+    return FAIL_BLACK_WIN;
+  }
+
+  /* 白方双四/活四：黑棋只能堵一个成五点 */
+  if (res.code === WIN_OPEN_FOUR) {
+    state.gameOver = true;
+    state.solved = true;
+    finalizeGameOver();
+    setMessage(WIN_OPEN_FOUR, 'mWhiteDoubleFour');
+    return WIN_OPEN_FOUR;
+  }
+
+  var wr = res.points[0][0], wc = res.points[0][1];
+
+  /* 抓禁手：黑棋被迫堵的点是三三/四四/长连禁手，黑棋不能落子，白方胜 */
+  var bc = classify(wr, wc);
+  if (bc.code === FAIL_FORBIDDEN_33 || bc.code === FAIL_FORBIDDEN_44 ||
+      bc.code === FAIL_FORBIDDEN_OVERLINE) {
+    state.gameOver = true;
+    state.solved = true;
+    finalizeGameOver();
+    setMessage(WIN_OPEN_FOUR, 'mWhiteForbidden');
+    return WIN_OPEN_FOUR;
+  }
+
+  board[wr][wc] = BLACK;
+  state.lastBlack = [wr, wc];
+  state.moves.push({ r: wr, c: wc, p: BLACK });
+  state.chainLength++;
+  playStoneSound();
+
+  if (!hasWhiteContinuation()) {
+    state.gameOver = true;
+    state.solved = false;
+    finalizeGameOver();
+    setMessage(LOSE_NO_FOUR, 'mWhiteNoFour');
+    return LOSE_NO_FOUR;
+  }
+
+  setMessage(RUSH_FOUR, 'mWhiteRushFour', { r: wr + 1, c: wc + 1 });
+  needsRedraw = true;
+  return RUSH_FOUR;
+}
+
+/* ============================================================
+ *  音效（WebAudio 合成落子声）
+ * ============================================================ */
+var audioCtx = null;
+var stoneNoiseBuf = null;
+
+/* 落子音：棋子真正磕在木棋盘上的「嗒 + 咚」 */
+function playStoneSound() {
+  try {
+    var Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    if (!audioCtx) audioCtx = new Ctx();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    var t0 = audioCtx.currentTime + 0.001;
+
+    /* ① 撞击瞬间的高频「嗒」：极短噪声脉冲 + 带通滤波 */
+    if (!stoneNoiseBuf) {
+      var n = Math.floor(audioCtx.sampleRate * 0.06);
+      stoneNoiseBuf = audioCtx.createBuffer(1, n, audioCtx.sampleRate);
+      var data = stoneNoiseBuf.getChannelData(0);
+      for (var i = 0; i < n; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 4);
+      }
+    }
+    var tick = audioCtx.createBufferSource();
+    tick.buffer = stoneNoiseBuf;
+    var bp = audioCtx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 2400 + Math.random() * 500;
+    bp.Q.value = 0.9;
+    var g1 = audioCtx.createGain();
+    g1.gain.setValueAtTime(0.9, t0);
+    g1.gain.exponentialRampToValueAtTime(0.001, t0 + 0.022);
+    tick.connect(bp); bp.connect(g1); g1.connect(audioCtx.destination);
+    tick.start(t0); tick.stop(t0 + 0.03);
+
+    /* ② 木盘共鸣的「咚」：三条快速衰减的正音，频率随机微抖更自然 */
+    var parts = [[1520, 0.03, 0.16], [880, 0.05, 0.20], [420, 0.08, 0.13]];
+    for (var k = 0; k < parts.length; k++) {
+      var f = parts[k][0] * (0.96 + Math.random() * 0.08);
+      var dur = parts[k][1];
+      var osc = audioCtx.createOscillator();
+      var g2 = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(f, t0);
+      osc.frequency.exponentialRampToValueAtTime(f * 0.82, t0 + dur);
+      g2.gain.setValueAtTime(parts[k][2], t0);
+      g2.gain.exponentialRampToValueAtTime(0.0008, t0 + dur);
+      osc.connect(g2); g2.connect(audioCtx.destination);
+      osc.start(t0); osc.stop(t0 + dur + 0.01);
+    }
+  } catch (e) { /* 无声环境静默降级 */ }
+}
+
+/* ============================================================
+ *  绘制（逻辑坐标固定 680×680：边距 60，格距 40）
+ * ============================================================ */
+var canvas = document.getElementById('board');
+var ctx = canvas.getContext('2d');
+var LOGIC = 680, PAD = 60, CELL = 40, STONE_R = 18.8;
+var needsRedraw = true;
+var hoverCell = null;
+
+function resizeCanvas() {
+  var rect = canvas.getBoundingClientRect();
+  var dpr = window.devicePixelRatio || 1;
+  var px = Math.max(1, Math.round(rect.width * dpr));
+  canvas.width = px;
+  canvas.height = px;
+  needsRedraw = true;
+}
+
+function cx(col) { return PAD + col * CELL; }
+function cy(row) { return PAD + row * CELL; }
+
+function drawBoard() {
+  var size = canvas.width;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, size, size);
+  var s = size / LOGIC;
+  ctx.setTransform(s, 0, 0, s, 0, 0);
+
+  /* 棋盘底色 */
+  ctx.fillStyle = '#ffd88b';
+  ctx.fillRect(0, 0, LOGIC, LOGIC);
+
+  /* 网格 */
+  ctx.strokeStyle = '#695020';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (var i = 0; i < N; i++) {
+    var p = PAD + i * CELL;
+    ctx.moveTo(p, PAD);
+    ctx.lineTo(p, PAD + (N - 1) * CELL);
+    ctx.moveTo(PAD, p);
+    ctx.lineTo(PAD + (N - 1) * CELL, p);
+  }
+  ctx.stroke();
+
+  /* 星位 */
+  ctx.fillStyle = '#695020';
+  for (var k = 0; k < STARS.length; k++) {
+    var sr = STARS[k][0], sc = STARS[k][1];
+    ctx.beginPath();
+    ctx.arc(cx(sc), cy(sr), 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  /* 坐标：下方 A-O，左侧 15-1 */
+  ctx.fillStyle = 'rgba(105, 80, 32, 0.62)';
+  ctx.font = '15px "Microsoft YaHei", "PingFang SC", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (var c = 0; c < N; c++) {
+    ctx.fillText(String.fromCharCode(65 + c), cx(c), PAD + (N - 1) * CELL + 30);
+  }
+  for (var r = 0; r < N; r++) {
+    ctx.fillText(String(N - r), PAD - 30, cy(r));
+  }
+
+  /* 悬停虚影（桌面鼠标） */
+  if (state.started && hoverCell && board.length && !state.gameOver &&
+      board[hoverCell[0]] && board[hoverCell[0]][hoverCell[1]] === EMPTY) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+    ctx.beginPath();
+    ctx.arc(cx(hoverCell[1]), cy(hoverCell[0]), STONE_R, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  /* 按下「开始答题」之前不显示棋子，保证每个人看到题目的瞬间才计时 */
+  if (!state.started) return;
+
+  /* 棋子 */
+  for (var rr = 0; rr < N; rr++) {
+    for (var cc2 = 0; cc2 < N; cc2++) {
+      var v = board[rr][cc2];
+      if (v === EMPTY) continue;
+      ctx.beginPath();
+      ctx.arc(cx(cc2), cy(rr), STONE_R, 0, Math.PI * 2);
+      if (v === BLACK) {
+        ctx.fillStyle = '#222222';
+        ctx.fill();
+      } else {
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.strokeStyle = '#96805c';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+  }
+
+  /* 手顺编号：本局落子按 1、2、3… 标在棋子上 */
+  ctx.font = 'bold 15px "Microsoft YaHei", "PingFang SC", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (var mv = 0; mv < state.moves.length; mv++) {
+    var mo = state.moves[mv];
+    ctx.fillStyle = mo.p === BLACK ? '#ffffff' : '#5a3d16';
+    ctx.fillText(String(mv + 1), cx(mo.c), cy(mo.r));
+  }
+}
+
+/* ============================================================
+ *  界面刷新
+ * ============================================================ */
+var elProgress = document.getElementById('progress');
+var elClock = document.getElementById('clock');
+var elChain = document.getElementById('chain');
+var elMsg = document.getElementById('msg');
+var elStats = document.getElementById('stats');
+var elAuto = document.getElementById('auto');
+var elPlayer = document.getElementById('player');
+var elRemain = document.getElementById('remain');
+var elBtnSkip = document.getElementById('btnSkip');
+var elBtnEnd = document.getElementById('btnEnd');
+var elSub = document.getElementById('sub');
+var elChainLabel = document.getElementById('chainLabel');
+var elTurn = document.getElementById('turnTag');
+var elChainUnit = document.getElementById('chainUnit');
+var elLbTitle = document.getElementById('lbTitle');
+var elBtnLbRefresh = document.getElementById('btnLbRefresh');
+var elHint = document.getElementById('hint');
+var langButtons = document.querySelectorAll('.lang-btn');
+var elFx = document.getElementById('fx');
+var elFxBadge = document.getElementById('fxBadge');
+var stageEl = document.querySelector('.stage');
+
+/* 答对：金色闪光 + 彩带 + 弹入徽章；答错：红色闪光 + 抖动 */
+function playResultFx(ok) {
+  if (!fxEnabled || !elFx) return;
+  var olds = elFx.querySelectorAll('i.conf');
+  for (var q = 0; q < olds.length; q++) olds[q].parentNode.removeChild(olds[q]);
+  elFx.className = 'fx';
+  elFx.hidden = false;
+  elFxBadge.textContent = ok ? t('fxOk') : t('fxFail');
+  void elFx.offsetWidth;
+  elFx.className = 'fx ' + (ok ? 'ok' : 'fail');
+  if (ok) {
+    spawnConfetti();
+  } else if (stageEl) {
+    stageEl.classList.remove('shake');
+    void stageEl.offsetWidth;
+    stageEl.classList.add('shake');
+  }
+}
+
+function hideResultFx() {
+  if (!elFx) return;
+  elFx.hidden = true;
+  elFx.className = 'fx';
+}
+
+function spawnConfetti() {
+  var colors = ['#f0c14b', '#ffd75e', '#e14637', '#ff8b3d', '#2d6ed7', '#1c7a42',
+                '#a25bd6', '#ff5d8f', '#39b7c8', '#ffb02e'];
+  for (var i = 0; i < 72; i++) {
+    var sp = document.createElement('i');
+    sp.className = 'conf';
+    sp.style.left = (Math.random() * 96 + 2) + '%';
+    sp.style.background = colors[i % colors.length];
+    sp.style.width = (Math.round(5 + Math.random() * 7)) + 'px';
+    sp.style.height = (Math.round(7 + Math.random() * 9)) + 'px';
+    /* 一部分做成圆片（像花瓣），剩下的是长条彩带 */
+    sp.style.borderRadius = (i % 4 === 0) ? '50%' : '2px';
+    sp.style.opacity = '0';
+    sp.style.animationDuration = (0.9 + Math.random() * 0.6) + 's';
+    sp.style.animationDelay = (Math.random() * 0.5) + 's';
+    sp.style.transform = 'rotate(' + Math.floor(Math.random() * 360) + 'deg)';
+    elFx.appendChild(sp);
+  }
+}
+
+function updateText() {
+  if (state.started && !state.gameOver) {
+    state.elapsedMs = Math.round(now() - state.startTime);
+    if (state.elapsedMs >= TIME_LIMIT_MS) timeoutFail();
+  }
+
+  elProgress.textContent = t('progress', { n: run.attempts });
+  elClock.textContent = state.started ? formatTime(state.elapsedMs) : '—';
+  elChain.textContent = state.chainLength;
+  elTurn.hidden = !state.started;
+  elTurn.textContent = t(state.turn === 'w' ? 'turnWhite' : 'turnBlack');
+  elTurn.className = 'turn-badge' + (state.turn === 'w' ? ' w' : '');
+  elStats.textContent = t('stats', {
+    solved: run.solved, n: run.attempts, time: formatTime(run.totalMs)
+  });
+  elPlayer.textContent = run.name ? t('player', { name: run.name }) : t('playerIdle');
+  elRemain.textContent = (state.started && !state.gameOver)
+    ? t('remain', { time: formatTime(Math.max(0, TIME_LIMIT_MS - state.elapsedMs)) })
+    : t('remainIdle');
+  elBtnSkip.disabled = !(run.active && state.started && !state.gameOver);
+  elBtnEnd.disabled = !run.active;
+
+  var msgText = state.messageKey ? t(state.messageKey, state.messageArgs || {}) : '';
+  if (elMsg.textContent !== msgText) elMsg.textContent = msgText;
+  if (elMsg.style.borderColor !== state.messageColor) elMsg.style.borderColor = state.messageColor;
+  if (elMsg.style.color !== state.messageColor) elMsg.style.color = state.messageColor;
+
+  if (state.gameOver && state.pendingNext) {
+    var remain = Math.max(0, (state.pendingNextTime - now()) / 1000);
+    elAuto.style.color = state.solved ? '#168a4a' : '#c43030';
+    elAuto.textContent = t('auto', {
+      ok: state.solved, time: formatTime(state.elapsedMs), remain: remain.toFixed(1)
+    });
+  } else {
+    elAuto.textContent = '';
+  }
+}
+
+/* ============================================================
+ *  交互
+ * ============================================================ */
+function eventToCell(ev) {
+  var rect = canvas.getBoundingClientRect();
+  var lx = (ev.clientX - rect.left) / rect.width * LOGIC;
+  var ly = (ev.clientY - rect.top) / rect.height * LOGIC;
+  var c = Math.round((lx - PAD) / CELL);
+  var r = Math.round((ly - PAD) / CELL);
+  if (r < 0 || r >= N || c < 0 || c >= N) return null;
+  if (Math.abs(lx - cx(c)) > CELL * 0.55) return null;
+  if (Math.abs(ly - cy(r)) > CELL * 0.55) return null;
+  return [r, c];
+}
+
+canvas.addEventListener('pointerdown', function (ev) {
+  ev.preventDefault();
+  if (!puzzles.length || !run.active || !state.started) return;
+  if (state.gameOver) return;
+  if (Math.round(now() - state.startTime) >= TIME_LIMIT_MS) {
+    timeoutFail();
+    updateText();
+    return;
+  }
+  var cell = eventToCell(ev);
+  if (!cell) return;
+  if (state.turn === 'w') tryWhiteMove(cell[0], cell[1]);
+  else tryBlackMove(cell[0], cell[1]);
+  updateText();
+});
+
+canvas.addEventListener('pointermove', function (ev) {
+  if (ev.pointerType !== 'mouse' || state.gameOver) {
+    if (hoverCell) { hoverCell = null; needsRedraw = true; }
+    return;
+  }
+  var cell = eventToCell(ev);
+  var changed = (!!cell !== !!hoverCell) ||
+                (cell && hoverCell && (cell[0] !== hoverCell[0] || cell[1] !== hoverCell[1])) ||
+                (cell && !hoverCell) || (!cell && hoverCell);
+  hoverCell = cell;
+  if (changed) needsRedraw = true;
+});
+
+canvas.addEventListener('pointerleave', function () {
+  hoverCell = null;
+  needsRedraw = true;
+});
+
+document.getElementById('btnSkip').addEventListener('click', function () {
+  skipPuzzle();
+});
+
+document.getElementById('btnEnd').addEventListener('click', function () {
+  endRun();
+});
+
+window.addEventListener('resize', resizeCanvas);
+window.addEventListener('orientationchange', function () { setTimeout(resizeCanvas, 120); });
+
+/* ============================================================
+ *  开始遮罩（开始本局 / 开始答题 / 再来一局）
+ * ============================================================ */
+var elOverlay = document.getElementById('overlay');
+var elOvTitle = document.getElementById('ovTitle');
+var elOvSub = document.getElementById('ovSub');
+var elOvName = document.getElementById('ovName');
+var elOvBtn = document.getElementById('ovBtn');
+var elOvTip = document.getElementById('ovTip');
+var elOvFxRow = document.getElementById('ovFxRow');
+var elOvFx = document.getElementById('ovFx');
+var elOvFxText = document.getElementById('ovFxText');
+
+function hideOverlay() { elOverlay.hidden = true; }
+function showOverlay() { elOverlay.hidden = false; }
+
+elOvFx.checked = fxEnabled;
+elOvFx.addEventListener('change', function () {
+  fxEnabled = elOvFx.checked;
+  try { localStorage.setItem(FX_KEY, fxEnabled ? '1' : '0'); } catch (e) { /* 忽略 */ }
+  if (!fxEnabled) hideResultFx();
+});
+
+function runRecord() {
+  return { name: run.name, solved: run.solved, attempts: run.attempts, totalMs: run.totalMs };
+}
+
+function updateOverlay() {
+  /* 一局进行中不再弹遮罩：题目出现即开始计时 */
+  if (run.active) { hideOverlay(); return; }
+
+  elOvName.hidden = false;
+  elOvFxRow.hidden = true;
+  if (run.finished) {
+    var rec = runRecord();
+    var acc = rec.attempts > 0 ? Math.round(rec.solved / rec.attempts * 100) : 0;
+    var rank = myRank();
+    elOvTitle.textContent = t('ovTitleEnd');
+    elOvSub.textContent = t('ovSubEnd', {
+      name: run.name, solved: rec.solved, n: rec.attempts, acc: acc,
+      time: formatTime(rec.totalMs), rank: rank
+    });
+    elOvBtn.textContent = t('ovBtnAgain');
+    elOvTip.textContent = t('ovTipEnd');
+  } else {
+    elOvTitle.textContent = t('ovTitleStart');
+    elOvSub.textContent = t('ovSubStart');
+    elOvBtn.textContent = t('ovBtnStart');
+    elOvTip.textContent = t('ovTipStart');
+    elOvFxRow.hidden = false;
+  }
+  showOverlay();
+}
+
+elOvBtn.addEventListener('click', function () {
+  if (!puzzles.length) { setMessage(null, 'mPrepare'); return; }
+  if (!run.active) startRun();
+});
+
+/* ============================================================
+ *  排行榜：在线共享；接口不可用时自动退回本机记录
+ * ============================================================ */
+var elLbList = document.getElementById('lbList');
+var elLbNote = document.getElementById('lbNote');
+
+/* 排行榜只统计前 15 题：旧记录超过 15 题时按同一正确率与速度折算成一回合 */
+function normalizeRoundRecord(rec) {
+  if (!rec || typeof rec.attempts !== 'number' || rec.attempts <= ROUND_SIZE) return rec;
+  var ratio = ROUND_SIZE / rec.attempts;
+  return {
+    name: rec.name,
+    solved: Math.min(ROUND_SIZE, Math.round((rec.solved || 0) * ratio)),
+    attempts: ROUND_SIZE,
+    totalMs: Math.round((rec.totalMs || 0) * ratio),
+    updatedAt: rec.updatedAt
+  };
+}
+
+function normalizeRecords(list) {
+  var out = [];
+  for (var i = 0; i < list.length; i++) {
+    var r = normalizeRoundRecord(list[i]);
+    if (r && r.name) out.push(r);
+  }
+  return out;
+}
+
+function readLocalLeaderboard() {
+  try {
+    var raw = localStorage.getItem(LB_KEY);
+    var list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? normalizeRecords(list) : [];
+  } catch (e) { return []; }
+}
+
+function writeLocalLeaderboard(list) {
+  try { localStorage.setItem(LB_KEY, JSON.stringify(list)); } catch (e) { /* 配额/隐私模式忽略 */ }
+}
+
+/* 排序：正确数多优先 → 正确率（solved/attempts）高 → 总用时短 */
+function compareRecords(a, b) {
+  if (a.solved !== b.solved) return b.solved - a.solved;
+  var accuracyA = a.solved * b.attempts;   /* a 的正确率分子 × b 的分母 */
+  var accuracyB = b.solved * a.attempts;
+  if (accuracyA !== accuracyB) return accuracyB - accuracyA;
+  if (a.totalMs !== b.totalMs) return a.totalMs - b.totalMs;
+  return (a.updatedAt || 0) - (b.updatedAt || 0);
+}
+
+/* 同名只保留更好的一局 */
+function mergeRecord(list, rec) {
+  var out = [];
+  var found = false;
+  for (var i = 0; i < list.length; i++) {
+    var item = list[i];
+    if (!item || !item.name) continue;
+    if (item.name === rec.name) {
+      found = true;
+      out.push(compareRecords(rec, item) < 0 ? rec : item);
+    } else {
+      out.push(item);
+    }
+  }
+  if (!found) out.push(rec);
+  out.sort(compareRecords);
+  return out.slice(0, 100);
+}
+
+function myRank() {
+  var sorted = leaderboard.slice().sort(compareRecords);
+  for (var i = 0; i < sorted.length; i++) {
+    if (sorted[i].name === run.name) return i + 1;
+  }
+  return 0;
+}
+
+function renderLeaderboard() {
+  var list = leaderboard.slice().sort(compareRecords).slice(0, 100);
+  while (elLbList.firstChild) elLbList.removeChild(elLbList.firstChild);
+
+  if (!list.length) {
+    var empty = document.createElement('li');
+    empty.className = 'lb-empty';
+    empty.textContent = t('lbEmpty');
+    elLbList.appendChild(empty);
+  }
+
+  for (var i = 0; i < list.length; i++) {
+    var rec = list[i];
+    var li = document.createElement('li');
+    if (run.name && rec.name === run.name) li.className = 'me';
+
+    var sp = document.createElement('span');
+    sp.className = 'rank';
+    sp.textContent = (i + 1) + '.';
+    li.appendChild(sp);
+
+    sp = document.createElement('span');
+    sp.className = 'nm';
+    sp.textContent = rec.name;
+    li.appendChild(sp);
+
+    sp = document.createElement('span');
+    sp.className = 'sc';
+    sp.textContent = rec.solved + '/' + rec.attempts;
+    li.appendChild(sp);
+
+    sp = document.createElement('span');
+    sp.className = 'tm';
+    sp.textContent = formatTime(rec.totalMs);
+    li.appendChild(sp);
+
+    elLbList.appendChild(li);
+  }
+
+  elLbNote.textContent = t(leaderboardOnline ? 'lbNoteOnline' : (lbLoaded ? 'lbNoteLocal' : 'lbNoteIdle'));
+}
+
+/* 切换语言：静态文案、消息框、弹窗与排行榜全部实时重算 */
+function applyLanguage() {
+  document.documentElement.lang = (lang === 'zh') ? 'zh-CN' : lang;
+  document.title = t('docTitle');
+  elSub.textContent = t('sub');
+  elChainLabel.textContent = t('chainLabel');
+  elChainUnit.textContent = t('chainUnit');
+  elLbTitle.textContent = t('lbTitle');
+  elBtnLbRefresh.textContent = t('lbRefresh');
+  elHint.textContent = t('hint');
+  elBtnSkip.textContent = t('btnSkip');
+  elBtnEnd.textContent = t('btnEnd');
+  elOvName.placeholder = t('ovNamePh');
+  elOvFxText.textContent = t('ovFxText');
+  updateLangButtons();
+  renderLeaderboard();
+  updateOverlay();
+  updateText();
+  needsRedraw = true;
+}
+
+/* 四个语言按钮横向平铺，当前语言高亮 */
+function updateLangButtons() {
+  for (var i = 0; i < langButtons.length; i++) {
+    var on = langButtons[i].getAttribute('data-lang') === lang;
+    if (on) langButtons[i].classList.add('active');
+    else langButtons[i].classList.remove('active');
+  }
+}
+
+for (var bi = 0; bi < langButtons.length; bi++) {
+  (function (btn) {
+    btn.addEventListener('click', function () {
+      var v = btn.getAttribute('data-lang');
+      if (LANGS.indexOf(v) < 0) return;
+      lang = v;
+      try { localStorage.setItem(LANG_KEY, lang); } catch (e) { /* 隐私模式忽略 */ }
+      applyLanguage();
+    });
+  })(langButtons[bi]);
+}
+
+function useLocalLeaderboard() {
+  leaderboard = readLocalLeaderboard();
+  leaderboardOnline = false;
+  lbLoaded = true;
+  renderLeaderboard();
+}
+
+function loadLeaderboard() {
+  if (typeof fetch !== 'function') { useLocalLeaderboard(); return; }
+  fetch('api/leaderboard', { cache: 'no-store', headers: { 'Accept': 'application/json' } })
+    .then(function (resp) {
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return resp.json();
+    })
+    .then(function (data) {
+      leaderboard = normalizeRecords((data && data.items) ? data.items : []);
+      leaderboardOnline = true;
+      lbLoaded = true;
+      renderLeaderboard();
+      updateOverlay();
+    })
+    .catch(function () { useLocalLeaderboard(); });
+}
+
+function submitRecord() {
+  var rec = runRecord();
+  if (!rec.name || rec.attempts === 0) { renderLeaderboard(); return; }
+  rec.updatedAt = Date.now();
+
+  /* 先落本机一份，服务器不可用时也有记录 */
+  leaderboard = mergeRecord(readLocalLeaderboard(), rec);
+  writeLocalLeaderboard(leaderboard);
+
+  if (typeof fetch !== 'function') { leaderboardOnline = false; lbLoaded = true; renderLeaderboard(); return; }
+  fetch('api/records', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: rec.name, solved: rec.solved, attempts: rec.attempts, totalMs: rec.totalMs
+    })
+  })
+    .then(function (resp) {
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return resp.json();
+    })
+    .then(function (data) {
+      if (data && data.items) { leaderboard = normalizeRecords(data.items); leaderboardOnline = true; }
+      lbLoaded = true;
+      renderLeaderboard();
+      updateOverlay();
+    })
+    .catch(function () {
+      leaderboardOnline = false;
+      lbLoaded = true;
+      renderLeaderboard();
+      updateOverlay();
+    });
+}
+
+document.getElementById('btnLbRefresh').addEventListener('click', function () {
+  loadLeaderboard();
+});
+
+/* ============================================================
+ *  主循环
+ * ============================================================ */
+function frame() {
+  try {
+    if (state.gameOver && state.pendingNext && now() >= state.pendingNextTime) {
+      advancePuzzle();
+      needsRedraw = true;
+    }
+    if (needsRedraw) {
+      drawBoard();
+      needsRedraw = false;
+    }
+    updateText();
+  } catch (err) {
+    /* 单帧异常不能让主循环停掉，否则会卡在本题无法切题 */
+    console.error(err);
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ============================================================
+ *  载入题库
+ * ============================================================ */
+function indexToPoints(list) {
+  var out = [];
+  if (!list) return out;
+  for (var i = 0; i < list.length; i++) {
+    var v = list[i];
+    out.push([Math.floor(v / N), v % N]);
+  }
+  return out;
+}
+
+function normalizePuzzles(raw) {
+  var out = [];
+  for (var i = 0; i < raw.length; i++) {
+    var item = raw[i];
+    /* 紧凑格式：{b:[格点索引...], w:[格点索引...]}，索引 = row*15+col */
+    if (item.b || item.w) {
+      out.push({
+        name: '', source: '',
+        blacks: indexToPoints(item.b), whites: indexToPoints(item.w),
+        turn: item.t === 1 ? 'w' : 'b'
+      });
+      continue;
+    }
+    var b = item.blacks || item.black || [];
+    var w = item.whites || item.white || [];
+    out.push({
+      name: item.name || ('第 ' + (i + 1) + ' 题'),
+      source: item.source || '',
+      blacks: b,
+      whites: w
+    });
+  }
+  return out;
+}
+
+var loopStarted = false;
+
+/* 装载棋谱：失败时静默重试，绝不把技术错误抛给玩家 */
+function loadPuzzles() {
+  fetch('puzzles.json', { cache: 'no-cache' })
+    .then(function (resp) {
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return resp.json();
+    })
+    .then(function (raw) {
+      puzzles = normalizePuzzles(raw);
+      if (!puzzles.length) throw new Error('empty');
+      resizeCanvas();
+      loadPuzzle(0);
+      try { elOvName.value = localStorage.getItem(NAME_KEY) || ''; } catch (e) { /* 忽略 */ }
+      updateOverlay();
+      loadLeaderboard();
+      if (!loopStarted) { loopStarted = true; frame(); }
+    })
+    .catch(function () {
+      setMessage(null, 'preparing');
+      updateText();
+      if (!loopStarted) { loopStarted = true; frame(); }
+      setTimeout(loadPuzzles, 1200);
+    });
+}
+
+applyLanguage();
+loadPuzzles();
+</script>
+</body>
+</html>

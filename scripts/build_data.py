@@ -96,6 +96,7 @@ white_arr = bytearray()
 cur = None
 ngames = 0
 maxpid = 0
+used_pids = set()
 with open(xml_path, encoding='utf-8') as f:
     section = None
     for line in f:
@@ -132,6 +133,7 @@ with open(xml_path, encoding='utf-8') as f:
             res_arr.append(r)
             bi, wi = int(black), int(white)
             maxpid = max(maxpid, bi, wi)
+            used_pids.add(bi); used_pids.add(wi)
             black_arr += bi.to_bytes(2, 'little')
             white_arr += wi.to_bytes(2, 'little')
             cur = ngames   # 当前局的下标
@@ -152,6 +154,21 @@ with open(xml_path, encoding='utf-8') as f:
             cur = None
 
 print('games:', ngames, 'with moves:', sum(1 for L in lens if L > 0), 'maxpid:', maxpid)
+
+# ---------- 选手姓名表（pid -> "中文|English"，仅保留出现在对局中的选手） ----------
+name_by_disp = {}
+for d, info in lj.items():
+    if info['en']:
+        name_by_disp[d] = (info['cn'] + '|' + info['en']) if info['cn'] else info['en']
+for rows in (rat_rows, rat_all_rows):
+    for _r, _c, disp, cn_title, en, _rt, _co, _by in rows:
+        if disp not in name_by_disp:
+            name_by_disp[disp] = (cn_title + '|' + en) if cn_title else en
+pname = {}
+for pid in used_pids:
+    nm = name_by_disp.get(player_disp.get(str(pid), ''), '')
+    if nm: pname[str(pid)] = nm
+print('named players:', len(pname), '/', len(used_pids))
 
 def build_players(rows):
     out = []
@@ -184,6 +201,7 @@ out = {
     },
     'top100': players,
     'top100All': players_all,
+    'pname': pname,
     'moves': b64(moves_blob),
     'lens': b64(lens),
     'rule': b64(rule_arr),
