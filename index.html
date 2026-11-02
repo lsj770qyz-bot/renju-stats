@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#ffd88b">
+<title>连珠对局胜率分支图 · RenjuNet 数据库</title>
+<style>
+  :root {
+    --brown: #695020;
+    --ink: #5a4a2c;
+    --muted: #988a70;
+    --line: #e2dac8;
+    --panel: #fcfaf6;
+    --board: #ffd88b;
+    --blue: #2f7cf6;
+    --green: #34a853;
+    --gray: #9aa0a6;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: #f4f1ea;
+    color: var(--ink);
+    font-family: "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", system-ui, sans-serif;
+  }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px env(safe-area-inset-right) 16px env(safe-area-inset-left);
+  }
+  .wrap {
+    display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: center;
+    gap: 16px; width: 100%; max-width: 1080px; position: relative; padding-top: 38px;
+  }
+  .stage {
+    position: relative;
+    width: min(92vw, 74vh, 620px);
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 10px;
+    box-shadow: 0 6px 22px rgba(105, 80, 32, .16);
+    touch-action: manipulation;
+    cursor: pointer;
+  }
+  .tip {
+    position: absolute; z-index: 25; pointer-events: none;
+    background: rgba(38, 30, 16, .92); color: #ffeec2;
+    font-size: 12px; line-height: 1.6;
+    padding: 6px 10px; border-radius: 8px;
+    white-space: nowrap; transform: translate(-50%, -100%);
+  }
+  .tip[hidden] { display: none; }
+  .panel {
+    width: min(92vw, 330px);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 18px;
+    box-shadow: 0 4px 16px rgba(105, 80, 32, .07);
+  }
+  h1 { margin: 0 0 2px; font-size: 21px; color: var(--brown); letter-spacing: 1px; }
+  .sub { margin: 0 0 12px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .tabs button {
+    flex: 1; padding: 8px 2px; font-size: 13px; font-family: inherit;
+    color: var(--brown); background: transparent; cursor: pointer;
+    border: 1px solid #d9cfb9; border-radius: 8px;
+  }
+  .tabs button.active { background: var(--board); border-color: #e6c073; font-weight: 700; }
+  .row {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 14px; color: var(--brown); margin: 8px 0; gap: 8px;
+  }
+  .row .val { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .row label { flex: 0 0 auto; }
+  select {
+    font-family: inherit; font-size: 13px; color: var(--ink);
+    border: 1px solid #d9cfb9; border-radius: 6px; padding: 3px 6px; background: #fff;
+    max-width: 170px;
+  }
+  input[type="number"] {
+    font-family: inherit; font-size: 13px; color: var(--ink);
+    border: 1px solid #d9cfb9; border-radius: 6px; padding: 3px 4px;
+    width: 62px; background: #fff;
+  }
+  hr { border: none; border-top: 1px solid var(--line); margin: 12px 0; }
+  .path {
+    font-size: 13px; color: var(--ink); line-height: 1.8;
+    word-break: break-all; min-height: 24px;
+  }
+  .path b { color: var(--brown); }
+  .btns { display: flex; gap: 6px; margin: 8px 0 0; }
+  .btns button {
+    flex: 1; padding: 7px 4px; font-size: 13px; font-family: inherit;
+    color: var(--brown); background: #fff; cursor: pointer;
+    border: 1px solid #d9cfb9; border-radius: 8px;
+  }
+  .btns button:hover { background: #fff6dd; }
+  .legend { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink); margin-top: 8px; }
+  .legend span { display: flex; align-items: center; gap: 6px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex: 0 0 12px; }
+  .cand { list-style: none; margin: 6px 0 0; padding: 0; font-size: 12.5px; max-height: 220px; overflow-y: auto; }
+  .cand li {
+    display: flex; gap: 6px; align-items: center;
+    padding: 3px 4px; border-bottom: 1px dashed #ece5d6; cursor: pointer;
+  }
+  .cand li:hover { background: #fff6dd; }
+  .cand .rank { width: 18px; flex: 0 0 18px; text-align: center; font-weight: 700; color: #fff; border-radius: 6px; font-size: 11px; line-height: 18px; }
+  .cand .rank.b { background: var(--blue); }
+  .cand .rank.g { background: var(--green); }
+  .cand .rank.y { background: var(--gray); }
+  .cand .coord { font-weight: 700; color: var(--brown); width: 34px; flex: 0 0 34px; }
+  .cand .bar { flex: 1; font-variant-numeric: tabular-nums; color: #7d7159; }
+  .empty { font-size: 13px; color: var(--muted); line-height: 1.8; }
+  .note { margin-top: 10px; font-size: 11px; color: #a89c86; line-height: 1.6; }
+  #loading {
+    position: fixed; inset: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    background: #f4f1ea; font-size: 14px; color: var(--brown);
+  }
+  /* 选手榜与资料卡 */
+  .players { list-style: none; margin: 6px 0 0; padding: 0; font-size: 13px; max-height: 420px; overflow-y: auto; }
+  .players li {
+    display: flex; gap: 8px; align-items: baseline;
+    padding: 5px 4px; border-bottom: 1px dashed #ece5d6; cursor: pointer;
+  }
+  .players li:hover { background: #fff6dd; }
+  .players .rk { width: 26px; flex: 0 0 26px; color: #a08c62; font-variant-numeric: tabular-nums; }
+  .players .nm { flex: 1; color: var(--brown); font-weight: 600; }
+  .players .nm i { font-style: normal; font-weight: 400; color: var(--muted); font-size: 11px; margin-left: 4px; }
+  .players .rt { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .pcard { font-size: 13px; line-height: 1.9; }
+  .pcard .pname { font-size: 17px; font-weight: 700; color: var(--brown); }
+  .pcard .pen { color: var(--muted); font-size: 12px; margin-left: 6px; }
+  .pcard .back { float: right; font-size: 12px; color: #2f7cf6; cursor: pointer; }
+  .langs {
+    position: absolute; top: 10px; left: 14px; display: flex; gap: 4px; z-index: 20;
+  }
+  .langs button {
+    font-family: inherit; font-size: 12px; padding: 3px 10px; cursor: pointer;
+    border: 1px solid #c9bda9; background: #f4ecd9; color: #6a5d43; border-radius: 5px;
+  }
+  .langs button.on { background: var(--ink); color: #f4ecd9; border-color: var(--ink); }
+</style>
+</head>
+<body>
+<div id="loading">正在载入 165,849 局对局数据…</div>
+<div class="wrap">
+  <div class="langs" id="langs">
+    <button data-lang="zh" class="on">中文</button><button data-lang="en">EN</button><button data-lang="ja">日本語</button><button data-lang="ko">한국어</button>
+  </div>
+  <div class="stage">
+    <canvas id="board"></canvas>
+    <div class="tip" id="tip" hidden></div>
+  </div>
+  <div class="panel">
+    <h1>胜率分支图</h1>
+    <p class="sub">数据来源：RenjuNet 对局库（2026-11-01）· 8 向对称局面已归并<br>左键落子深入分支，右键回退一手</p>
+    <div class="tabs">
+      <button id="tabAll" class="active">全部对局</button>
+      <button id="tabTop">Top100</button>
+      <button id="tabPlayer">选手个人</button>
+    </div>
+    <div class="row"><label id="lblRule">规则</label><select id="ruleSel"><option value="0">全部规则</option></select></div>
+    <div class="row"><label id="lblTime">时间</label><span>
+      <select id="yearFrom"></select> – <select id="yearTo"></select>
+    </span></div>
+    <div class="row"><span id="lblScope">统计范围</span><span class="val" id="dsInfo"></span></div>
+
+    <!-- 选手榜 -->
+    <div id="playerListBox">
+      <ul class="players" id="playerList"></ul>
+    </div>
+
+    <!-- 分支视图 -->
+    <div id="treeBox">
+      <div class="pcard" id="pcard" hidden></div>
+      <div id="oppBox" hidden>
+        <div class="row"><span id="lblOpp">对手等级分</span><span>
+          <input type="number" id="oppLo" value="2600"> – <input type="number" id="oppHi" placeholder="不限">
+        </span></div>
+        <div class="pcard" id="oppStats"></div>
+      </div>
+      <div class="legend" id="legendBox">
+        <span><i class="dot" style="background:var(--blue)"></i>下得最多的点</span>
+        <span><i class="dot" style="background:var(--green)"></i>第 2～10 多的点</span>
+        <span><i class="dot" style="background:var(--gray)"></i>其余候选点 · 圈内数字＝落子方得分率%</span>
+      </div>
+      <hr>
+      <div class="row"><span id="lblBranch">当前分支</span><span class="val" id="curInfo"></span></div>
+      <div class="path" id="pathView">尚未落子（点击棋盘候选点开始）</div>
+      <div class="btns">
+        <button id="btnUndo">← 撤销一手</button>
+        <button id="btnReset">重置</button>
+      </div>
+      <hr>
+      <div class="row"><span id="lblCand">候选落点</span><span class="val" id="candCount"></span></div>
+      <ul class="cand" id="candList"></ul>
+    </div>
+  </div>
+</div>
+
+<script src="games.js"></script>
+<script>
+/* ============================================================
+ *  落子音（沿用原站：棋子磕在木棋盘上的「嗒 + 咚」）
+ * ============================================================ */
+var audioCtx = null;
+var stoneNoiseBuf = null;
+
+function playStoneSound() {
+  try {
+    var Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    if (!audioCtx) audioCtx = new Ctx();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    var t0 = audioCtx.currentTime + 0.001;
+
+    if (!stoneNoiseBuf) {
+      var n = Math.floor(audioCtx.sampleRate * 0.06);
+      stoneNoiseBuf = audioCtx.createBuffer(1, n, audioCtx.sampleRate);
+      var data = stoneNoiseBuf.getChannelData(0);
+      for (var i = 0; i < n; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 4);
+      }
+    }
+    var tick = audioCtx.createBufferSource();
+    tick.buffer = stoneNoiseBuf;
+    var bp = audioCtx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 2400 + Math.random() * 500;
+    bp.Q.value = 0.9;
+    var g1 = audioCtx.createGain();
+    g1.gain.setValueAtTime(0.9, t0);
+    g1.gain.exponentialRampToValueAtTime(0.001, t0 + 0.022);
+    tick.connect(bp); bp.connect(g1); g1.connect(audioCtx.destination);
+    tick.start(t0); tick.stop(t0 + 0.03);
+
+    var parts = [[1520, 0.03, 0.16], [880, 0.05, 0.20], [420, 0.08, 0.13]];
+    for (var k = 0; k < parts.length; k++) {
+      var f = parts[k][0] * (0.96 + Math.random() * 0.08);
+      var dur = parts[k][1];
+      var osc = audioCtx.createOscillator();
+      var g2 = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(f, t0);
+      osc.frequency.exponentialRampToValueAtTime(f * 0.82, t0 + dur);
+      g2.gain.setValueAtTime(parts[k][2], t0);
+      g2.gain.exponentialRampToValueAtTime(0.0008, t0 + dur);
+      osc.connect(g2); g2.connect(audioCtx.destination);
+      osc.start(t0); osc.stop(t0 + dur + 0.01);
+    }
+  } catch (e) { /* 无声环境静默降级 */ }
+}
+
+/* ============================================================
+ *  棋盘绘制（沿用原站：逻辑坐标 680×680，边距 60，格距 40）
+ * ============================================================ */
+var N = 15;
+var STARS = [[3, 3], [3, 11], [11, 3], [11, 11], [7, 7]];
+var canvas = document.getElementById('board');
+var ctx = canvas.getContext('2d');
+var LOGIC = 680, PAD = 60, CELL = 40, STONE_R = 18.8, CAND_R = 16.5;
+var tip = document.getElementById('tip');
+
+function resizeCanvas() {
+  var rect = canvas.getBoundingClientRect();
+  var dpr = window.devicePixelRatio || 1;
+  var px = Math.max(1, Math.round(rect.width * dpr));
+  canvas.width = px;
+  canvas.height = px;
+  draw();
+}
+function cx(col) { return PAD + col * CELL; }
+function cy(row) { return PAD + row * CELL; }
+function coordName(cell) {
+  var r = Math.floor(cell / 15), c = cell % 15;
+  return String.fromCharCode(97 + c) + (15 - r);
+}
+
+/* ============================================================
+ *  数据：解码 base64 → typed arrays
+ * ============================================================ */
+var RAW = window.RENJU_GAMES;
+function b64dec(s) {
+  var bin = atob(s);
+  var u8 = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return u8;
+}
+var MOVES = b64dec(RAW.moves);
+var LENS = b64dec(RAW.lens);
+var RULE = b64dec(RAW.rule);
+var YEAR = b64dec(RAW.year);   // +1900
+var RES = b64dec(RAW.res);     // 0黑胜 1白胜 2和; +4 = top100参与
+var _b = b64dec(RAW.black), _w = b64dec(RAW.white);
+var NG = LENS.length;
+var BLACK = new Uint16Array(NG), WHITE = new Uint16Array(NG);
+for (var pi = 0; pi < NG; pi++) {
+  BLACK[pi] = _b[pi * 2] | (_b[pi * 2 + 1] << 8);
+  WHITE[pi] = _w[pi * 2] | (_w[pi * 2 + 1] << 8);
+}
+var OFF = new Uint32Array(NG + 1);
+for (var oi = 0; oi < NG; oi++) OFF[oi + 1] = OFF[oi] + LENS[oi];
+
+/* ============================================================
+ *  棋盘 8 向对称变换（cell = row*15+col，行列均 0..14）
+ * ============================================================ */
+var SYM = [];
+(function () {
+  var fns = [
+    function (r, c) { return r * 15 + c; },
+    function (r, c) { return c * 15 + (14 - r); },
+    function (r, c) { return (14 - r) * 15 + (14 - c); },
+    function (r, c) { return (14 - c) * 15 + r; },
+    function (r, c) { return r * 15 + (14 - c); },
+    function (r, c) { return (14 - r) * 15 + c; },
+    function (r, c) { return c * 15 + r; },
+    function (r, c) { return (14 - c) * 15 + (14 - r); }
+  ];
+  for (var t = 0; t < 8; t++) {
+    var arr = new Uint8Array(225);
+    for (var cell = 0; cell < 225; cell++) {
+      arr[cell] = fns[t](Math.floor(cell / 15), cell % 15);
+    }
+    SYM.push(arr);
+  }
+})();
+
+/* ============================================================
+ *  状态与筛选
+ * ============================================================ */
+var state = {
+  dataset: 'all',      // 'all' | 'top100' | 'player'
+  playerPid: 0,        // 选手内部 id（dataset='player' 时生效）
+  rule: 0,
+  yearFrom: 2023, yearTo: 9999,
+  moves: [],
+  hoverCell: null
+};
+
+function passFilter(idx) {
+  if (state.dataset === 'top100' && RES[idx] < 4) return false;
+  if (state.dataset === 'player' && state.playerPid &&
+      BLACK[idx] !== state.playerPid && WHITE[idx] !== state.playerPid) return false;
+  if (state.rule !== 0 && RULE[idx] !== state.rule) return false;
+  var y = YEAR[idx] + 1900;
+  if (y === 1900) return state.yearFrom === 0;
+  return y >= state.yearFrom && y <= state.yearTo;
+}
+
+var matchList = [];
+var histStack = [];
+
+function buildRootMatchList() {
+  matchList = [];
+  for (var g = 0; g < NG; g++) {
+    if (!passFilter(g) || LENS[g] === 0) continue;   // 无棋谱对局只进战绩统计，不进分支树
+    var base = g * 8;
+    for (var t = 0; t < 8; t++) matchList.push(base + t);
+  }
+  histStack = [];
+}
+
+var seen = new Uint32Array(NG);
+var stamp = 0;
+
+/* 当前局面的对称稳定子：保持黑白棋子集合不变的对称变换 */
+function stabilizer() {
+  var bset = new Uint8Array(225), wset = new Uint8Array(225);
+  for (var i = 0; i < state.moves.length; i++) {
+    if (i % 2 === 0) bset[state.moves[i]] = 1; else wset[state.moves[i]] = 1;
+  }
+  var stab = [];
+  for (var t = 0; t < 8; t++) {
+    var ok = true;
+    for (var cell = 0; cell < 225 && ok; cell++) {
+      if (bset[cell] && !bset[SYM[t][cell]]) ok = false;
+      else if (wset[cell] && !wset[SYM[t][cell]]) ok = false;
+    }
+    if (ok) stab.push(SYM[t]);
+  }
+  return stab;
+}
+
+/* 候选下一手；对称互通的候选点合并为一个代表点（规范代表取最小格号），局数/胜/和累加 */
+function candidates() {
+  var k = state.moves.length;
+  var byBlack = k % 2 === 0;
+  var agg = {};
+  var reached = 0;
+  stamp++;
+  for (var i = 0; i < matchList.length; i++) {
+    var e = matchList[i];
+    var g = e >> 3, t = e & 7;
+    if (seen[g] === stamp) continue;
+    seen[g] = stamp;
+    reached++;   // 走到此局面即计入（含恰好在此终局的）
+    if (LENS[g] <= k) continue;
+    var cell = SYM[t][MOVES[OFF[g] + k]];
+    var res = RES[g] & 3;
+    var won = (res === 0 && byBlack) || (res === 1 && !byBlack);
+    var drew = res === 2;
+    var rec = agg[cell];
+    if (!rec) rec = agg[cell] = [0, 0, 0];
+    rec[0]++;
+    if (won) rec[1]++;
+    if (drew) rec[2]++;
+  }
+  var stab = stabilizer();
+  var merged = {};
+  for (var key in agg) {
+    var c0 = parseInt(key, 10);
+    /* 代表点：优先右侧（列大），再优先上侧（行小） */
+    var rep = c0;
+    for (var s = 0; s < stab.length; s++) {
+      var c2 = stab[s][c0];
+      var colR = rep % 15, rowR = Math.floor(rep / 15);
+      var colC = c2 % 15, rowC = Math.floor(c2 / 15);
+      if (colC > colR || (colC === colR && rowC < rowR)) rep = c2;
+    }
+    var v = agg[key];
+    var dst = merged[rep];
+    if (!dst) dst = merged[rep] = [0, 0, 0];
+    dst[0] += v[0]; dst[1] += v[1]; dst[2] += v[2];
+  }
+  var out = [];
+  for (var rk in merged) {
+    var rv = merged[rk];
+    out.push([parseInt(rk, 10), rv[0], rv[1], rv[2]]);
+  }
+  out.sort(function (a, b) { return b[1] - a[1]; });
+  out.reached = reached;
+  return out;
+}
+
+function rootStats() {
+  var g = 0, b = 0, d = 0;
+  for (var i = 0; i < NG; i++) {
+    if (!passFilter(i)) continue;
+    var res = RES[i] & 3;
+    g++;
+    if (res === 0) b++;
+    else if (res === 2) d++;
+  }
+  return [g, b, d];
+}
+
+/* 选手个人战绩（受规则/时间筛选影响） */
+function playerStats(pid) {
+  var g = 0, gm = 0, bw = 0, bd = 0, bl = 0, ww = 0, wd = 0, wl = 0;
+  for (var i = 0; i < NG; i++) {
+    if (BLACK[i] !== pid && WHITE[i] !== pid) continue;
+    if (state.rule !== 0 && RULE[i] !== state.rule) continue;
+    var y = YEAR[i] + 1900;
+    if (y === 1900) { if (state.yearFrom !== 0) continue; }
+    else if (y < state.yearFrom || y > state.yearTo) continue;
+    var res = RES[i] & 3;
+    g++;
+    if (LENS[i] > 0) gm++;
+    if (BLACK[i] === pid) {
+      if (res === 0) bw++; else if (res === 2) bd++; else bl++;
+    } else {
+      if (res === 1) ww++; else if (res === 2) wd++; else wl++;
+    }
+  }
+  return { g: g, gm: gm, bw: bw, bd: bd, bl: bl, ww: ww, wd: wd, wl: wl };
+}
+
+/* 选手 vs 指定等级分区间的对手战绩（受规则/时间筛选影响） */
+function playerOppStats(pid, lo, hi) {
+  var inn = { g: 0, w: 0, d: 0, bg: 0, bw: 0, bd: 0, wg: 0, ww: 0, wd: 0 };
+  var out = { g: 0, w: 0, d: 0, bg: 0, bw: 0, bd: 0, wg: 0, ww: 0, wd: 0 };
+  for (var i = 0; i < NG; i++) {
+    var asBlack = BLACK[i] === pid;
+    if (!asBlack && WHITE[i] !== pid) continue;
+    if (state.rule !== 0 && RULE[i] !== state.rule) continue;
+    var y = YEAR[i] + 1900;
+    if (y === 1900) { if (state.yearFrom !== 0) continue; }
+    else if (y < state.yearFrom || y > state.yearTo) continue;
+    var opp = asBlack ? WHITE[i] : BLACK[i];
+    var rt = RAW.ratingByPid[opp];
+    if (!rt) continue;   // 对手无等级分，不计入两侧
+    var res = RES[i] & 3;
+    var won = (res === 0 && asBlack) || (res === 1 && !asBlack);
+    var drew = res === 2;
+    var rec = (rt >= lo && (hi === 0 || rt <= hi)) ? inn : out;
+    rec.g++;
+    if (won) rec.w++;
+    if (drew) rec.d++;
+    if (asBlack) { rec.bg++; if (won) rec.bw++; if (drew) rec.bd++; }
+    else { rec.wg++; if (won) rec.ww++; if (drew) rec.wd++; }
+  }
+  return { inn: inn, out: out };
+}
+
+function scoreRate(w, d, g) { return g > 0 ? (w + d * 0.5) / g : 0; }
+function statLine(rec) {
+  if (rec.g === 0) return t('statNone');
+  return '<b>' + rec.g + '</b>' + t('statGames') + t('winRate') + ' ' + fmtPct(rec.w / rec.g) +
+    ' · ' + t('scoreRate') + ' ' + fmtPct(scoreRate(rec.w, rec.d, rec.g)) +
+    '<br>&nbsp;&nbsp;' + t('asBlack') + ' ' + rec.bg + t('gamesUnit') + '：' + t('winRate') + ' ' + (rec.bg ? fmtPct(rec.bw / rec.bg) : '-') +
+    ' · ' + t('scoreRate') + ' ' + (rec.bg ? fmtPct(scoreRate(rec.bw, rec.bd, rec.bg)) : '-') +
+    '<br>&nbsp;&nbsp;' + t('asWhite') + ' ' + rec.wg + t('gamesUnit') + '：' + t('winRate') + ' ' + (rec.wg ? fmtPct(rec.ww / rec.wg) : '-') +
+    ' · ' + t('scoreRate') + ' ' + (rec.wg ? fmtPct(scoreRate(rec.ww, rec.wd, rec.wg)) : '-');
+}
+
+/* 渲染「对手等级分战绩」区块（下限–上限可调，上限空=不限） */
+function renderOppStats() {
+  if (!currentPlayer || !state.playerPid) return;
+  var lo = parseInt(elOppLo.value, 10);
+  var hi = parseInt(elOppHi.value, 10);
+  if (isNaN(lo)) lo = 0;
+  if (isNaN(hi)) hi = 0;
+  var r = playerOppStats(state.playerPid, lo, hi);
+  var loTxt = lo + t('ratingUnit') + (hi ? '–' + hi + t('ratingUnit') : t('oppIn3'));
+  elOppStats.innerHTML =
+    t('oppIn1') + '<b>' + loTxt + '</b>' + t('oppIn2') + '<br>' + statLine(r.inn) +
+    '<br>' + t('oppOut') + '<b>' + t('oppOut2') + '</b>' + t('oppOut3') + '<br>' + statLine(r.out) +
+    '<br><span style="color:#a89c86;font-size:11px">' + t('oppNote') + '</span>';
+}
+
+function descend(cell) {
+  var k = state.moves.length;
+  histStack.push(matchList);
+  var next = [];
+  for (var i = 0; i < matchList.length; i++) {
+    var e = matchList[i];
+    var g = e >> 3, t = e & 7;
+    if (LENS[g] <= k) continue;
+    if (SYM[t][MOVES[OFF[g] + k]] === cell) next.push(e);
+  }
+  matchList = next;
+  state.moves.push(cell);
+}
+
+function undo() {
+  if (state.moves.length === 0) return;
+  matchList = histStack.pop();
+  state.moves.pop();
+  refresh();
+}
+
+function fmtPct(x) { return (x * 100).toFixed(1) + '%'; }
+function candColor(rank) {
+  if (rank === 0) return '#2f7cf6';
+  if (rank <= 9) return '#34a853';
+  return '#9aa0a6';
+}
+
+var lastCands = [];
+
+function draw() {
+  var size = canvas.width;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, size, size);
+  var s = size / LOGIC;
+  ctx.setTransform(s, 0, 0, s, 0, 0);
+
+  ctx.fillStyle = '#ffd88b';
+  ctx.fillRect(0, 0, LOGIC, LOGIC);
+
+  ctx.strokeStyle = '#695020';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (var i = 0; i < N; i++) {
+    var p = PAD + i * CELL;
+    ctx.moveTo(p, PAD);
+    ctx.lineTo(p, PAD + (N - 1) * CELL);
+    ctx.moveTo(PAD, p);
+    ctx.lineTo(PAD + (N - 1) * CELL, p);
+  }
+  ctx.stroke();
+
+  ctx.fillStyle = '#695020';
+  for (var k = 0; k < STARS.length; k++) {
+    ctx.beginPath();
+    ctx.arc(cx(STARS[k][1]), cy(STARS[k][0]), 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = 'rgba(105, 80, 32, 0.62)';
+  ctx.font = '15px "Microsoft YaHei", "PingFang SC", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (var c = 0; c < N; c++) {
+    ctx.fillText(String.fromCharCode(65 + c), cx(c), PAD + (N - 1) * CELL + 30);
+  }
+  for (var r = 0; r < N; r++) {
+    ctx.fillText(String(N - r), PAD - 30, cy(r));
+  }
+
+  for (var m = 0; m < state.moves.length; m++) {
+    var cell = state.moves[m];
+    var row = Math.floor(cell / 15), col = cell % 15;
+    ctx.beginPath();
+    ctx.arc(cx(col), cy(row), STONE_R, 0, Math.PI * 2);
+    if (m % 2 === 0) {
+      ctx.fillStyle = '#222222';
+      ctx.fill();
+    } else {
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.strokeStyle = '#96805c';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    ctx.fillStyle = (m % 2 === 0) ? '#ffffff' : '#5a3d16';
+    ctx.font = 'bold 15px "Microsoft YaHei", "PingFang SC", sans-serif';
+    ctx.fillText(String(m + 1), cx(col), cy(row));
+  }
+
+  for (var j = 0; j < lastCands.length; j++) {
+    var cell2 = lastCands[j][0], g = lastCands[j][1], w = lastCands[j][2], dd = lastCands[j][3];
+    var row2 = Math.floor(cell2 / 15), col2 = cell2 % 15;
+    var sr = g > 0 ? (w + dd * 0.5) / g : 0;
+    ctx.beginPath();
+    ctx.arc(cx(col2), cy(row2), CAND_R, 0, Math.PI * 2);
+    ctx.fillStyle = candColor(j);
+    ctx.globalAlpha = state.hoverCell === cell2 ? 1 : 0.88;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    if (state.hoverCell === cell2) {
+      ctx.strokeStyle = '#5a3d16';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 13px "Microsoft YaHei", "PingFang SC", sans-serif';
+    ctx.fillText(String(Math.round(sr * 100)), cx(col2), cy(row2));
+  }
+}
+
+/* ============================================================
+ *  界面
+ * ============================================================ */
+var elDsInfo = document.getElementById('dsInfo');
+var elCurInfo = document.getElementById('curInfo');
+var elPath = document.getElementById('pathView');
+var elCandCount = document.getElementById('candCount');
+var elCandList = document.getElementById('candList');
+var elRuleSel = document.getElementById('ruleSel');
+var elYearFrom = document.getElementById('yearFrom');
+var elYearTo = document.getElementById('yearTo');
+var elOppLo = document.getElementById('oppLo');
+var elOppHi = document.getElementById('oppHi');
+var elOppBox = document.getElementById('oppBox');
+var elOppStats = document.getElementById('oppStats');
+var tabAll = document.getElementById('tabAll');
+var tabTop = document.getElementById('tabTop');
+var tabPlayer = document.getElementById('tabPlayer');
+var elPlayerListBox = document.getElementById('playerListBox');
+var elPlayerList = document.getElementById('playerList');
+var elTreeBox = document.getElementById('treeBox');
+var elPcard = document.getElementById('pcard');
+
+var currentPlayer = null;   // RAW.top100 中的条目
+
+/* ============================================================
+ *  多语言（中/英/日/韩）
+ * ============================================================ */
+var I18N = {
+  zh: {
+    loading: '正在载入 165,849 局对局数据…',
+    h1: '胜率分支图',
+    sub: '数据来源：RenjuNet 对局库（2026-11-01）· 8 向对称局面已归并<br>左键落子深入分支，右键回退一手',
+    tabAll: '全部对局', tabTop: 'Top100', tabPlayer: '选手个人',
+    rule: '规则', allRules: '全部规则', time: '时间', anyYear: '不限', toNow: '至今',
+    dsScope: '统计范围', oppRating: '对手等级分', noLimit: '不限',
+    legend1: '下得最多的点', legend2: '第 2～10 多的点', legend3: '其余候选点 · 圈内数字＝落子方得分率%',
+    curBranch: '当前分支', undo: '← 撤销一手', reset: '重置',
+    candLabel: '候选落点', candUnit: ' 个',
+    dsAll: '全部 ', dsTop: 'Top100 选手参与 ', dsGames: ' 局', dsPlayer: ' 的对局',
+    picking: 'RIF 等级分 Top100',
+    back: '← 返回选手榜',
+    rifRating: 'RIF 等级分',
+    total: '总战绩', winRate: '胜率', scoreRate: '得分率', asBlack: '执黑', asWhite: '执白', gamesUnit: ' 局', share: '占', withMoves: '其中含棋谱',
+    opening: '开局 · 黑方先行', moveN1: '第 ', moveN2: ' 手 · ', black: '黑', white: '白', moveN3: '方走',
+    rootLine1: '尚未落子 · 当前筛选下黑胜 ', rootLine2: ' / 白胜 ', rootLine3: ' / 和 ',
+    noGames: '当前筛选条件下没有对局。',
+    reached: '走到此局面（含对称）的对局共 ', reachedEnd: ' 局',
+    noBranch: '当前筛选/分支下没有后续对局，可调整筛选条件或右键回退。',
+    statGames: ' 局 · ', statNone: '无对局',
+    oppIn1: '对等级分 ', oppIn2: ' 的对手：', oppIn3: ' 及以上', oppOut: '对', oppOut2: '区间外', oppOut3: '的对手：',
+    oppNote: '等级分采用 ljrenju 2026-10 期（现役值）；时间范围跟随上方筛选',
+    ratingUnit: ' 分'
+  },
+  en: {
+    loading: 'Loading 165,849 games…',
+    h1: 'Win-Rate Branch Map',
+    sub: 'Data: RenjuNet database (2026-11-01) · 8-way symmetric positions merged<br>Left-click to play into a branch, right-click to undo',
+    tabAll: 'All Games', tabTop: 'Top 100', tabPlayer: 'Players',
+    rule: 'Rule', allRules: 'All rules', time: 'Period', anyYear: 'Any', toNow: 'Now',
+    dsScope: 'Scope', oppRating: 'Opp. rating', noLimit: 'No limit',
+    legend1: 'Most played', legend2: '2nd–10th most played', legend3: 'Others · number = mover score rate %',
+    curBranch: 'Branch', undo: '← Undo', reset: 'Reset',
+    candLabel: 'Candidates', candUnit: '',
+    dsAll: 'All ', dsTop: 'With Top100 players: ', dsGames: ' games', dsPlayer: '\'s games',
+    picking: 'RIF Rating Top 100',
+    back: '← Back to player list',
+    rifRating: 'RIF rating',
+    total: 'Overall', winRate: 'Win', scoreRate: 'Score', asBlack: 'As Black', asWhite: 'As White', gamesUnit: ' games', share: '', withMoves: 'with records',
+    opening: 'Opening · Black to move', moveN1: 'Move ', moveN2: ' · ', black: 'Black', white: 'White', moveN3: ' to move',
+    rootLine1: 'No moves yet · Under current filter: Black ', rootLine2: ' / White ', rootLine3: ' / Draw ',
+    noGames: 'No games under the current filter.',
+    reached: 'Games reaching this position (incl. symmetries): ', reachedEnd: '',
+    noBranch: 'No follow-up games in this branch. Adjust the filter or right-click to go back.',
+    statGames: ' games · ', statNone: 'No games',
+    oppIn1: 'Vs opponents rated ', oppIn2: ':', oppIn3: '+', oppOut: 'Vs opponents ', oppOut2: 'outside the band', oppOut3: ':',
+    oppNote: 'Ratings: ljrenju 2026-10 list (current values); period follows the filter above',
+    ratingUnit: ''
+  },
+  ja: {
+    loading: '165,849 局の対局データを読み込み中…',
+    h1: '勝率分岐図',
+    sub: 'データ：RenjuNet 対局庫（2026-11-01）· 8 方向の対称局面を統合<br>左クリックで分岐に進み、右クリックで一手戻る',
+    tabAll: '全対局', tabTop: 'Top100', tabPlayer: '選手個人',
+    rule: 'ルール', allRules: '全ルール', time: '期間', anyYear: '指定なし', toNow: '現在まで',
+    dsScope: '集計範囲', oppRating: '相手レート', noLimit: '上限なし',
+    legend1: '最多の着手', legend2: '2～10 番目', legend3: 'その他 · 数字＝着手側スコア率%',
+    curBranch: '現在の分岐', undo: '← 一手戻る', reset: 'リセット',
+    candLabel: '候補手', candUnit: ' 個',
+    dsAll: '全 ', dsTop: 'Top100 選手参加 ', dsGames: ' 局', dsPlayer: ' の対局',
+    picking: 'RIF レーティング Top100',
+    back: '← 選手一覧へ',
+    rifRating: 'RIF レーティング',
+    total: '通算', winRate: '勝率', scoreRate: 'スコア率', asBlack: '黒番', asWhite: '白番', gamesUnit: ' 局', share: '占', withMoves: 'うち棋譜あり',
+    opening: '序盤 · 黒番', moveN1: '第 ', moveN2: ' 手 · ', black: '黒', white: '白', moveN3: '番',
+    rootLine1: '未着手 · 現在の絞込で黒勝 ', rootLine2: ' / 白勝 ', rootLine3: ' / 引分 ',
+    noGames: '現在の条件に該当する対局がありません。',
+    reached: 'この局面（対称含む）に到達した対局： ', reachedEnd: ' 局',
+    noBranch: 'この分岐に後続の対局がありません。条件を変えるか右クリックで戻ってください。',
+    statGames: ' 局 · ', statNone: '対局なし',
+    oppIn1: 'レート ', oppIn2: ' の相手：', oppIn3: ' 以上', oppOut: '', oppOut2: '区間外', oppOut3: 'の相手：',
+    oppNote: 'レートは ljrenju 2026-10 期（現行値）；期間は上の絞込に連動',
+    ratingUnit: ''
+  },
+  ko: {
+    loading: '165,849국 대국 데이터 로딩 중…',
+    h1: '승률 분기도',
+    sub: '데이터: RenjuNet 대국 DB(2026-11-01) · 8방향 대칭 국면 통합<br>좌클릭으로 분기 진입, 우클릭으로 한 수 되돌리기',
+    tabAll: '전체 대국', tabTop: 'Top100', tabPlayer: '선수별',
+    rule: '룰', allRules: '전체 룰', time: '기간', anyYear: '제한 없음', toNow: '현재까지',
+    dsScope: '집계 범위', oppRating: '상대 레이팅', noLimit: '제한 없음',
+    legend1: '최다 착점', legend2: '2~10위 착점', legend3: '기타 · 숫자 = 착수 측 득점률%',
+    curBranch: '현재 분기', undo: '← 한 수 취소', reset: '초기화',
+    candLabel: '후보 착점', candUnit: ' 개',
+    dsAll: '전체 ', dsTop: 'Top100 선수 참여 ', dsGames: ' 국', dsPlayer: '의 대국',
+    picking: 'RIF 레이팅 Top100',
+    back: '← 선수 목록으로',
+    rifRating: 'RIF 레이팅',
+    total: '통산', winRate: '승률', scoreRate: '득점률', asBlack: '흑', asWhite: '백', gamesUnit: ' 국', share: '비중', withMoves: '기보 포함',
+    opening: '초반 · 흑 선수', moveN1: '제 ', moveN2: ' 수 · ', black: '흑', white: '백', moveN3: ' 차례',
+    rootLine1: '미착수 · 현재 필터 흑승 ', rootLine2: ' / 백승 ', rootLine3: ' / 무승부 ',
+    noGames: '현재 조건에 해당하는 대국이 없습니다.',
+    reached: '이 국면(대칭 포함)에 도달한 대국: ', reachedEnd: ' 국',
+    noBranch: '이 분기에 후속 대국이 없습니다. 조건을 바꾸거나 우클릭으로 돌아가세요.',
+    statGames: ' 국 · ', statNone: '대국 없음',
+    oppIn1: '레이팅 ', oppIn2: ' 상대:', oppIn3: ' 이상', oppOut: '', oppOut2: '구간 밖', oppOut3: ' 상대:',
+    oppNote: '레이팅은 ljrenju 2026-10기(현행값); 기간은 위 필터와 연동',
+    ratingUnit: ''
+  }
+};
+var lang = 'zh';
+function t(k) { return I18N[lang][k]; }
+
+function applyLang() {
+  document.querySelector('.panel h1').textContent = t('h1');
+  document.querySelector('.panel .sub').innerHTML = t('sub');
+  tabAll.textContent = t('tabAll');
+  tabTop.textContent = t('tabTop');
+  tabPlayer.textContent = t('tabPlayer');
+  document.getElementById('lblRule').textContent = t('rule');
+  elRuleSel.options[0].text = t('allRules');
+  document.getElementById('lblTime').textContent = t('time');
+  elYearFrom.options[0].text = t('anyYear');
+  elYearTo.options[0].text = t('toNow');
+  document.getElementById('lblScope').textContent = t('dsScope');
+  document.getElementById('lblOpp').textContent = t('oppRating');
+  elOppHi.placeholder = t('noLimit');
+  document.getElementById('legendBox').innerHTML =
+    '<span><i class="dot" style="background:var(--blue)"></i>' + t('legend1') + '</span>' +
+    '<span><i class="dot" style="background:var(--green)"></i>' + t('legend2') + '</span>' +
+    '<span><i class="dot" style="background:var(--gray)"></i>' + t('legend3') + '</span>';
+  document.getElementById('lblBranch').textContent = t('curBranch');
+  document.getElementById('btnUndo').textContent = t('undo');
+  document.getElementById('btnReset').textContent = t('reset');
+  document.getElementById('lblCand').textContent = t('candLabel');
+  document.querySelectorAll('#langs button').forEach(function (b) {
+    b.classList.toggle('on', b.dataset.lang === lang);
+  });
+  renderPlayerList();
+  refresh();
+}
+
+document.getElementById('langs').addEventListener('click', function (ev) {
+  var b = ev.target.closest('button');
+  if (!b || b.dataset.lang === lang) return;
+  lang = b.dataset.lang;
+  applyLang();
+});
+
+function setTab(name) {
+  state.dataset = name;
+  tabAll.classList.toggle('active', name === 'all');
+  tabTop.classList.toggle('active', name === 'top100');
+  tabPlayer.classList.toggle('active', name === 'player');
+}
+
+/* 选手显示名：中文界面显示中文名（可附英文），其他语言只显示英文名 */
+function playerName(p, withEn) {
+  if (lang === 'zh') return (p.cn || p.en) + (withEn && p.cn ? '<i>' + p.en + '</i>' : '');
+  return p.en;
+}
+
+function renderPlayerList() {
+  var html = '';
+  for (var i = 0; i < RAW.top100.length; i++) {
+    var p = RAW.top100[i];
+    html += '<li data-disp="' + p.disp + '"><span class="rk">' + p.rank + '</span>' +
+      '<span class="nm">' + playerName(p, true) + '</span>' +
+      '<span class="rt">' + p.rating + '</span></li>';
+  }
+  elPlayerList.innerHTML = html;
+}
+
+function selectPlayer(disp) {
+  var p = null;
+  for (var i = 0; i < RAW.top100.length; i++) {
+    if (RAW.top100[i].disp === disp) { p = RAW.top100[i]; break; }
+  }
+  if (!p) return;
+  currentPlayer = p;
+  state.playerPid = RAW.pidByDisp[disp] || 0;
+  state.moves = [];
+  buildRootMatchList();
+  refresh();
+}
+
+function refresh() {
+  var picking = state.dataset === 'player' && !state.playerPid;
+  elPlayerListBox.style.display = picking ? '' : 'none';
+  elTreeBox.style.display = picking ? 'none' : '';
+
+  if (picking) {
+    elDsInfo.textContent = t('picking');
+    lastCands = [];
+    draw();
+    return;
+  }
+
+  lastCands = candidates();
+  draw();
+
+  if (state.dataset === 'all') {
+    elDsInfo.textContent = t('dsAll') + RAW.counts.all.toLocaleString() + t('dsGames');
+  } else if (state.dataset === 'top100') {
+    elDsInfo.textContent = t('dsTop') + RAW.counts.top100.toLocaleString() + t('dsGames');
+  } else {
+    elDsInfo.textContent = currentPlayer ? playerName(currentPlayer, false) + t('dsPlayer') : '';
+  }
+
+  /* 选手资料卡 + 对手分级战绩 */
+  if (state.dataset === 'player' && currentPlayer) {
+    var ps = playerStats(state.playerPid);
+    var wins = ps.bw + ps.ww, draws = ps.bd + ps.wd;
+    var bg = ps.bw + ps.bd + ps.bl, wg = ps.ww + ps.wd + ps.wl;
+    elPcard.innerHTML =
+      '<span class="back" id="pback">' + t('back') + '</span>' +
+      '<span class="pname">#' + currentPlayer.rank + ' ' + playerName(currentPlayer, false) + '</span>' +
+      '<span class="pen">' + (lang === 'zh' ? currentPlayer.en : '') + '</span><br>' +
+      (currentPlayer.country ? currentPlayer.country + (currentPlayer.city ? ' · ' + currentPlayer.city : '') + '<br>' : '') +
+      t('rifRating') + ' <b>' + currentPlayer.rating + '</b><br>' +
+      t('total') + ' <b>' + ps.g + '</b>' + t('gamesUnit') + '（' + t('withMoves') + ' ' + ps.gm + '）：' + t('winRate') + ' <b>' + (ps.g ? fmtPct(wins / ps.g) : '-') +
+      '</b> · ' + t('scoreRate') + ' <b>' + (ps.g ? fmtPct(scoreRate(wins, draws, ps.g)) : '-') + '</b><br>' +
+      t('asBlack') + ' ' + bg + t('gamesUnit') + '（' + t('share') + ' ' + (ps.g ? fmtPct(bg / ps.g) : '-') + '）：' + t('winRate') + ' ' +
+      (bg ? fmtPct(ps.bw / bg) : '-') + ' · ' + t('scoreRate') + ' ' + (bg ? fmtPct(scoreRate(ps.bw, ps.bd, bg)) : '-') + '<br>' +
+      t('asWhite') + ' ' + wg + t('gamesUnit') + '（' + t('share') + ' ' + (ps.g ? fmtPct(wg / ps.g) : '-') + '）：' + t('winRate') + ' ' +
+      (wg ? fmtPct(ps.ww / wg) : '-') + ' · ' + t('scoreRate') + ' ' + (wg ? fmtPct(scoreRate(ps.ww, ps.wd, wg)) : '-');
+    elPcard.hidden = false;
+    elOppBox.hidden = false;
+    renderOppStats();
+    document.getElementById('pback').addEventListener('click', function () {
+      state.playerPid = 0;
+      currentPlayer = null;
+      state.moves = [];
+      refresh();
+    });
+  } else {
+    elPcard.hidden = true;
+    elOppBox.hidden = true;
+  }
+
+  var nextBlack = state.moves.length % 2 === 0;
+  elCurInfo.textContent = state.moves.length === 0
+    ? t('opening')
+    : t('moveN1') + (state.moves.length + 1) + t('moveN2') + (nextBlack ? t('black') : t('white')) + t('moveN3');
+
+  if (state.moves.length === 0) {
+    var rs = rootStats();
+    if (rs[0] > 0) {
+      var bw = rs[1] / rs[0], dr = rs[2] / rs[0], ww2 = 1 - bw - dr;
+      elPath.innerHTML = t('rootLine1') + '<b>' + fmtPct(bw) + '</b>' + t('rootLine2') +
+        '<b>' + fmtPct(ww2) + '</b>' + t('rootLine3') + '<b>' + fmtPct(dr) + '</b>';
+    } else {
+      elPath.textContent = t('noGames');
+    }
+  } else {
+    var parts = [];
+    for (var i = 0; i < state.moves.length; i++) {
+      parts.push('<b>' + (i + 1) + '</b>.' + coordName(state.moves[i]));
+    }
+    elPath.innerHTML = parts.join(' → ') +
+      '<br>' + t('reached') + '<b>' + lastCands.reached.toLocaleString() + '</b>' + t('reachedEnd');
+  }
+
+  elCandCount.textContent = lastCands.length + t('candUnit');
+  if (lastCands.length === 0) {
+    elCandList.innerHTML = '<li class="empty" style="cursor:default">' + t('noBranch') + '</li>';
+    return;
+  }
+  var html = '';
+  for (var j = 0; j < lastCands.length; j++) {
+    var cell = lastCands[j][0], g = lastCands[j][1], w = lastCands[j][2], d = lastCands[j][3];
+    var cls = j === 0 ? 'b' : (j <= 9 ? 'g' : 'y');
+    html += '<li data-cell="' + cell + '">' +
+      '<span class="rank ' + cls + '">' + (j + 1) + '</span>' +
+      '<span class="coord">' + coordName(cell) + '</span>' +
+      '<span class="bar">' + g.toLocaleString() + t('gamesUnit') + ' · ' + t('scoreRate') + ' ' + fmtPct((w + d * 0.5) / g) +
+      ' · ' + t('winRate') + ' ' + fmtPct(w / g) + '</span></li>';
+  }
+  elCandList.innerHTML = html;
+}
+
+/* ============================================================
+ *  交互
+ * ============================================================ */
+function eventToCell(ev) {
+  var rect = canvas.getBoundingClientRect();
+  var x = (ev.clientX - rect.left) / rect.width * LOGIC;
+  var y = (ev.clientY - rect.top) / rect.width * LOGIC;
+  var col = Math.round((x - PAD) / CELL);
+  var row = Math.round((y - PAD) / CELL);
+  if (row < 0 || row >= N || col < 0 || col >= N) return null;
+  if (Math.abs(x - cx(col)) > CELL / 2 || Math.abs(y - cy(row)) > CELL / 2) return null;
+  return row * 15 + col;
+}
+function isCandidate(cell) {
+  for (var i = 0; i < lastCands.length; i++) if (lastCands[i][0] === cell) return lastCands[i];
+  return null;
+}
+function playCell(cell) {
+  descend(cell);
+  playStoneSound();
+  refresh();
+}
+
+canvas.addEventListener('pointerdown', function (ev) {
+  if (ev.button !== 0) return;
+  var cell = eventToCell(ev);
+  if (cell === null || !isCandidate(cell)) return;
+  playCell(cell);
+});
+canvas.addEventListener('contextmenu', function (ev) {
+  ev.preventDefault();
+  undo();
+});
+
+canvas.addEventListener('pointermove', function (ev) {
+  var cell = eventToCell(ev);
+  state.hoverCell = cell;
+  draw();
+  var rec = cell === null ? null : isCandidate(cell);
+  if (rec) {
+    var row = Math.floor(cell / 15), col = cell % 15;
+    var rect = canvas.getBoundingClientRect();
+    tip.style.left = (cx(col) / LOGIC * rect.width) + 'px';
+    tip.style.top = (cy(row) / LOGIC * rect.width - 10) + 'px';
+    tip.innerHTML = coordName(cell) + '：' + rec[1].toLocaleString() + t('gamesUnit') + '，' + t('scoreRate') + ' ' +
+      fmtPct((rec[2] + rec[3] * 0.5) / rec[1]) + '，' + t('winRate') + ' ' + fmtPct(rec[2] / rec[1]);
+    tip.hidden = false;
+  } else {
+    tip.hidden = true;
+  }
+});
+canvas.addEventListener('pointerleave', function () {
+  state.hoverCell = null;
+  tip.hidden = true;
+  draw();
+});
+
+document.getElementById('btnUndo').addEventListener('click', undo);
+document.getElementById('btnReset').addEventListener('click', function () {
+  state.moves = [];
+  buildRootMatchList();
+  refresh();
+});
+elRuleSel.addEventListener('change', function () {
+  state.rule = parseInt(elRuleSel.value, 10);
+  state.moves = [];
+  buildRootMatchList();
+  refresh();
+});
+elYearFrom.addEventListener('change', onYearChange);
+elYearTo.addEventListener('change', onYearChange);
+elOppLo.addEventListener('change', renderOppStats);
+elOppHi.addEventListener('change', renderOppStats);
+function onYearChange() {
+  var f = parseInt(elYearFrom.value, 10);   // 0 = 不限
+  var t = parseInt(elYearTo.value, 10);     // 0 = 至今
+  state.yearFrom = f;
+  state.yearTo = t === 0 ? 9999 : t;
+  if (state.yearTo < state.yearFrom && t !== 0 && f !== 0) {
+    state.yearTo = state.yearFrom;
+    elYearTo.value = elYearFrom.value;
+  }
+  state.moves = [];
+  buildRootMatchList();
+  refresh();
+}
+tabAll.addEventListener('click', function () {
+  setTab('all');
+  state.moves = [];
+  buildRootMatchList();
+  refresh();
+});
+tabTop.addEventListener('click', function () {
+  setTab('top100');
+  state.moves = [];
+  buildRootMatchList();
+  refresh();
+});
+tabPlayer.addEventListener('click', function () {
+  setTab('player');
+  state.playerPid = 0;
+  currentPlayer = null;
+  state.moves = [];
+  refresh();
+});
+elCandList.addEventListener('click', function (ev) {
+  var li = ev.target.closest('li[data-cell]');
+  if (!li) return;
+  var cell = parseInt(li.getAttribute('data-cell'), 10);
+  if (!isCandidate(cell)) return;
+  playCell(cell);
+});
+elPlayerList.addEventListener('click', function (ev) {
+  var li = ev.target.closest('li[data-disp]');
+  if (!li) return;
+  selectPlayer(li.getAttribute('data-disp'));
+});
+
+window.addEventListener('resize', resizeCanvas);
+window.addEventListener('orientationchange', function () { setTimeout(resizeCanvas, 120); });
+
+/* 填充规则下拉 */
+(function () {
+  var ids = Object.keys(RAW.rules).sort(function (a, b) { return a - b; });
+  var html = '<option value="0">全部规则</option>';
+  for (var i = 0; i < ids.length; i++) {
+    html += '<option value="' + ids[i] + '">' + RAW.rules[ids[i]] + '</option>';
+  }
+  elRuleSel.innerHTML = html;
+})();
+
+/* 填充年份下拉（从/至，双向可选） */
+(function () {
+  var hf = '<option value="0">不限</option>';
+  var ht = '<option value="0">至今</option>';
+  for (var y = 2026; y >= 1986; y--) {
+    hf += '<option value="' + y + '"' + (y === 2023 ? ' selected' : '') + '>' + y + '</option>';
+    ht += '<option value="' + y + '">' + y + '</option>';
+  }
+  elYearFrom.innerHTML = hf;
+  elYearTo.innerHTML = ht;
+})();
+
+renderPlayerList();
+resizeCanvas();
+buildRootMatchList();
+refresh();
+document.getElementById('loading').remove();
+</script>
+</body>
+</html>
