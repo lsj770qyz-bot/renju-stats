@@ -166,7 +166,7 @@
   </div>
   <div class="panel">
     <h1>胜率分支图</h1>
-    <p class="sub" id="tSub">点候选点深入分支，点最后一手棋子或右键回退一手</p>
+    <p class="sub" id="tSub">点候选点深入分支，点棋子或右键回退一手</p>
     <div class="tabs">
       <button id="tabAll" class="active">全部对局</button>
       <button id="tabTop">Top100</button>
@@ -680,7 +680,7 @@ var I18N = {
   zh: {
     loading: '正在载入 165,849 局对局数据…',
     h1: '胜率分支图',
-    sub: '点候选点深入分支，点最后一手棋子或右键回退一手',
+    sub: '点候选点深入分支，点棋子或右键回退一手',
     tabAll: '全部对局', tabTop: 'Top100', tabPlayer: '选手个人',
     rule: '规则', allRules: '全部规则', time: '时间', anyYear: '不限', toNow: '至今',
     dsScope: '统计范围', oppRating: '对手等级分', noLimit: '不限',
@@ -707,7 +707,7 @@ var I18N = {
   en: {
     loading: 'Loading 165,849 games…',
     h1: 'Win-Rate Branch Map',
-    sub: 'Tap a candidate to go deeper, tap the last stone or right-click to undo',
+    sub: 'Tap a candidate to go deeper, tap any stone or right-click to undo one move',
     tabAll: 'All Games', tabTop: 'Top 100', tabPlayer: 'Players',
     rule: 'Rule', allRules: 'All rules', time: 'Period', anyYear: 'Any', toNow: 'Now',
     dsScope: 'Scope', oppRating: 'Opp. rating', noLimit: 'No limit',
@@ -734,7 +734,7 @@ var I18N = {
   ja: {
     loading: '165,849 局の対局データを読み込み中…',
     h1: '勝率分岐図',
-    sub: '候補手をタップで分岐に進み、最後の石または右クリックで一手戻る',
+    sub: '候補手をタップで分岐に進み、石または右クリックで一手戻る',
     tabAll: '全対局', tabTop: 'Top100', tabPlayer: '選手個人',
     rule: 'ルール', allRules: '全ルール', time: '期間', anyYear: '指定なし', toNow: '現在まで',
     dsScope: '集計範囲', oppRating: '相手レート', noLimit: '上限なし',
@@ -761,7 +761,7 @@ var I18N = {
   ko: {
     loading: '165,849국 대국 데이터 로딩 중…',
     h1: '승률 분기도',
-    sub: '후보점을 눌러 분기 진입, 마지막 돌 또는 우클릭으로 한 수 취소',
+    sub: '후보점을 눌러 분기 진입, 돌 또는 우클릭으로 한 수 취소',
     tabAll: '전체 대국', tabTop: 'Top100', tabPlayer: '선수별',
     rule: '룰', allRules: '전체 룰', time: '기간', anyYear: '제한 없음', toNow: '현재까지',
     dsScope: '집계 범위', oppRating: '상대 레이팅', noLimit: '제한 없음',
@@ -994,7 +994,8 @@ canvas.addEventListener('pointerdown', function (ev) {
   if (ev.button !== 0) return;
   var cell = eventToCell(ev);
   if (cell === null) return;
-  if (state.moves.length && state.moves[state.moves.length - 1] === cell) { undo(); return; }
+  var mi = state.moves.indexOf(cell);
+  if (mi !== -1) { undo(); return; }
   if (!isCandidate(cell)) return;
   playCell(cell);
 });
