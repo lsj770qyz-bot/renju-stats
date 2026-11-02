@@ -92,13 +92,6 @@
     word-break: break-all; min-height: 24px;
   }
   .path b { color: var(--brown); }
-  .btns { display: flex; gap: 6px; margin: 8px 0 0; }
-  .btns button {
-    flex: 1; padding: 7px 4px; font-size: 13px; font-family: inherit;
-    color: var(--brown); background: #fff; cursor: pointer;
-    border: 1px solid #d9cfb9; border-radius: 8px;
-  }
-  .btns button:hover { background: #fff6dd; }
   .legend { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink); margin-top: 8px; }
   .legend span { display: flex; align-items: center; gap: 6px; }
   .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex: 0 0 12px; }
@@ -143,7 +136,8 @@
   .endg li { padding: 3px 2px; border-bottom: 1px dashed var(--line); line-height: 1.5; }
   .endg .yr { color: var(--muted); font-variant-numeric: tabular-nums; }
   .navArrows { display: flex; gap: 14px; justify-content: center; margin-top: 12px; }
-  .navArrows button { width: 76px; height: 44px; font-size: 20px; border: 1px solid var(--line); background: #fff; border-radius: 10px; cursor: pointer; color: var(--brown); }
+  .navArrows button { min-width: 76px; height: 44px; padding: 0 14px; font-size: 20px; border: 1px solid var(--line); background: #fff; border-radius: 10px; cursor: pointer; color: var(--brown); }
+  .navArrows #btnReset { font-size: 15px; }
   .navArrows button:active { background: #f0e6d2; }
   .players .nm { flex: 1; color: var(--brown); font-weight: 600; }
   .players .nm i { font-style: normal; font-weight: 400; color: var(--muted); font-size: 11px; margin-left: 4px; }
@@ -171,7 +165,7 @@
   <div class="stage">
     <canvas id="board"></canvas>
     <div class="tip" id="tip" hidden></div>
-    <div class="navArrows"><button id="btnBack" title="撤销一手">◀</button><button id="btnFwd" title="前进一手">▶</button></div>
+    <div class="navArrows"><button id="btnBack" title="撤销一手">◀</button><button id="btnReset">重置</button><button id="btnFwd" title="前进一手">▶</button></div>
   </div>
   <div class="panel">
     <h1>胜率分支图</h1>
@@ -213,10 +207,6 @@
       <hr>
       <div class="row"><span id="lblBranch">当前分支</span><span class="val" id="curInfo"></span></div>
       <div class="path" id="pathView">尚未落子（点击棋盘候选点开始）</div>
-      <div class="btns">
-        <button id="btnUndo">← 撤销一手</button>
-        <button id="btnReset">重置</button>
-      </div>
       <hr>
       <div class="row"><span id="lblCand">候选落点</span><span class="val" id="candCount"></span></div>
       <ul class="cand" id="candList"></ul>
@@ -832,7 +822,6 @@ function applyLang() {
     '<span><i class="dot" style="background:var(--green)"></i>' + t('legend2') + '</span>' +
     '<span><i class="dot" style="background:var(--gray)"></i>' + t('legend3') + '</span>';
   document.getElementById('lblBranch').textContent = t('curBranch');
-  document.getElementById('btnUndo').textContent = t('undo');
   document.getElementById('btnReset').textContent = t('reset');
   document.getElementById('btnBack').title = t('undo');
   document.getElementById('btnFwd').title = t('redo');
@@ -1074,7 +1063,6 @@ canvas.addEventListener('pointerleave', function () {
   draw();
 });
 
-document.getElementById('btnUndo').addEventListener('click', undo);
 document.getElementById('btnBack').addEventListener('click', undo);
 document.getElementById('btnFwd').addEventListener('click', redo);
 document.getElementById('btnReset').addEventListener('click', function () {
