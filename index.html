@@ -145,6 +145,14 @@
   .navArrows button { min-width: 76px; height: 44px; padding: 0 14px; font-size: 20px; border: 1px solid var(--line); background: #fff; border-radius: 10px; cursor: pointer; color: var(--brown); }
   .navArrows #btnReset { font-size: 15px; }
   .navArrows button:active { background: #f0e6d2; }
+  .engineRow { display: flex; justify-content: center; margin-top: 10px; }
+  #btnEngine {
+    width: 100%; height: 48px; font-family: inherit; font-size: 15px; font-weight: 700;
+    border: 1px solid #c9bda9; background: #fff; color: var(--brown); border-radius: 10px;
+    cursor: pointer; letter-spacing: .5px;
+  }
+  #btnEngine.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+  #btnEngine:active { transform: scale(.985); }
   .players .nm { flex: 1; color: var(--brown); font-weight: 600; }
   .players .nm.f, .pcard .pname.f { color: #c0392b; }
   .players .nm i { font-style: normal; font-weight: 400; color: var(--muted); font-size: 11px; margin-left: 4px; }
@@ -173,6 +181,7 @@
     <canvas id="board"></canvas>
     <div class="tip" id="tip" hidden></div>
     <div class="navArrows"><button id="btnBack" title="撤销一手">◀</button><button id="btnReset">重置</button><button id="btnFwd" title="前进一手">▶</button></div>
+    <div class="engineRow"><button id="btnEngine">Rapfi 胜率</button></div>
   </div>
   <div class="panel">
     <h1>胜率分支图</h1>
@@ -224,7 +233,7 @@
     </div>
   </div>
 </div>
-<footer class="foot" id="tFoot">凌世杰 创建 · 数据来源 renju.net 官网 · 禁止商用</footer>
+<footer class="foot" id="tFoot">凌世杰 创建 · 数据来源 renju.net 官网 · 禁止商用 · 引擎 Rapfi（GPL-3.0）</footer>
 
 <script src="games.js"></script>
 <script>
@@ -605,6 +614,204 @@ function candColor(rank) {
 
 var lastCands = [];
 
+/* ============================================================
+ *  胜率显示：开源连珠引擎 Rapfi（WASM，懒加载）为正式口径，
+ *  引擎返回自己认为的 Top-10 好点（独立于数据库候选点）；
+ *  载入前/载入失败时用下面的内置轻量估算兜底。
+ * ============================================================ */
+var engineOn = false;
+var engineTop = null;    /* 引擎自选 Top-10：[[cell, wr], ...]，引擎模式下直接驱动棋盘显示 */
+var engineBusy = false;  /* 正在等 Rapfi 结果 */
+
+var EDIR = [[0, 1], [1, 0], [1, 1], [1, -1]];
+
+/* 棋形模式表（以落点为中心取 11 格字符串：1=我方 2=对方/边外 0=空） */
+var P_FOUR = ['11011', '10111', '11101', '011112', '211110'];
+var P_OPEN3 = ['01110', '011010', '010110', '011100', '001110'];
+var P_THREE = ['211100', '001112', '11001', '10011', '10101', '210110', '011012'];
+var P_TWO = ['00110', '01100', '01010', '010010', '011000'];
+
+/* 棋形等级：0 无 / 1 活二 / 2 眠三 / 3 活三 / 4 冲四 / 5 活四 / 6 成五 */
+function lineClass(s) {
+  if (s.indexOf('11111') >= 0) return 6;
+  if (s.indexOf('011110') >= 0) return 5;
+  var i;
+  for (i = 0; i < P_FOUR.length; i++) if (s.indexOf(P_FOUR[i]) >= 0) return 4;
+  for (i = 0; i < P_OPEN3.length; i++) if (s.indexOf(P_OPEN3[i]) >= 0) return 3;
+  for (i = 0; i < P_THREE.length; i++) if (s.indexOf(P_THREE[i]) >= 0) return 2;
+  for (i = 0; i < P_TWO.length; i++) if (s.indexOf(P_TWO[i]) >= 0) return 1;
+  return 0;
+}
+
+/* 某一落点对某一方的威胁值（越大越强；含双四/四三/双活三加成） */
+function pointScore(bd, color, cell) {
+  var r = Math.floor(cell / 15), c = cell % 15;
+  var lv = [0, 0, 0, 0];
+  for (var d = 0; d < 4; d++) {
+    var dr = EDIR[d][0], dc = EDIR[d][1];
+    var s = '';
+    for (var k = -5; k <= 5; k++) {
+      var rr = r + dr * k, cc = c + dc * k;
+      if (rr < 0 || rr > 14 || cc < 0 || cc > 14) s += '2';
+      else {
+        var v = bd[rr * 15 + cc];
+        s += v === 0 ? '0' : (v === color ? '1' : '2');
+      }
+    }
+    lv[d] = lineClass(s);
+  }
+  lv.sort(function (a, b) { return b - a; });
+  var sum = lv[0] + lv[1] * 0.6 + lv[2] * 0.3 + lv[3] * 0.15;
+  if (lv[0] >= 4 && lv[1] >= 4) sum += 3;          /* 双四 */
+  else if (lv[0] >= 4 && lv[1] >= 3) sum += 2;     /* 四三 */
+  else if (lv[0] >= 3 && lv[1] >= 3) sum += 1.5;   /* 双活三 */
+  return sum;
+}
+
+/* 候选落点集合：已有棋子周围 2 格内的空点 */
+function nearCells(bd) {
+  var list = [], mark = new Uint8Array(225);
+  for (var i = 0; i < 225; i++) {
+    if (bd[i] === 0) continue;
+    var r = Math.floor(i / 15), c = i % 15;
+    for (var dr = -2; dr <= 2; dr++) {
+      for (var dc = -2; dc <= 2; dc++) {
+        var rr = r + dr, cc = c + dc;
+        if (rr < 0 || rr > 14 || cc < 0 || cc > 14) continue;
+        var cell = rr * 15 + cc;
+        if (bd[cell] !== 0 || mark[cell]) continue;
+        mark[cell] = 1;
+        list.push(cell);
+      }
+    }
+  }
+  return list;
+}
+
+/* 计算某一候选点的引擎胜率（下一手方视角）
+ * 我方落子后的威胁等级 vs 对手紧接着的最佳威胁（两层预判） */
+function evalCell(bd, cell, me, oppCells) {
+  var opp = 3 - me;
+  if (bd[cell] !== 0) return 0.5;
+  bd[cell] = me;
+
+  var myA = pointScore(bd, me, cell);
+  if (myA >= 6) { bd[cell] = 0; return 1; }
+
+  var oppA = 0;
+  for (var i = 0; i < oppCells.length; i++) {
+    var c2 = oppCells[i];
+    if (c2 === cell || bd[c2] !== 0) continue;
+    bd[c2] = opp;
+    var t = pointScore(bd, opp, c2);
+    bd[c2] = 0;
+    if (t > oppA) {
+      oppA = t;
+      if (oppA >= 6) break;   /* 对手可直接成五，无需再算 */
+    }
+  }
+  bd[cell] = 0;
+
+  if (oppA >= 6) return 0.03;
+  var diff = myA - oppA * 1.08;
+  var p = 0.5 + 0.44 * Math.tanh(diff / 3.2);
+  if (p > 0.97) p = 0.97;
+  if (p < 0.03) p = 0.03;
+  return p;
+}
+function engineCompute() {
+  if (!lastCands.length) return null;
+  var bd = buildBoard();
+  var me = state.moves.length % 2 === 0 ? 1 : 2;
+  var oppCells = nearCells(bd);
+  var out = [];
+  for (var i = 0; i < lastCands.length; i++) {
+    out.push(evalCell(bd, lastCands[i][0], me, oppCells));
+  }
+  return out;
+}
+
+function buildBoard() {
+  var bd = new Uint8Array(225);
+  for (var i = 0; i < state.moves.length; i++) bd[state.moves[i]] = (i % 2 === 0) ? 1 : 2;
+  return bd;
+}
+
+/* ---------- Rapfi WASM 引擎：按需加载 + 异步请求 ----------
+ * 首次点按钮时才开始下载 wasm/权重（约 20MB），引擎返回自己的 Top-10 好点。 */
+var rapfiWorker = null;
+var rapfiState = 'idle';   // idle / loading / ready / failed
+var rapfiSeq = 0;          // 请求序号，用于丢弃过期结果
+
+function rapfiStart() {
+  if (rapfiState === 'loading' || rapfiState === 'ready' || rapfiState === 'failed') return;
+  rapfiState = 'loading';
+  try {
+    rapfiWorker = new Worker('engine/rapfi-worker.js');
+  } catch (e) {
+    rapfiState = 'failed';
+    engineBusy = false;
+    engineTop = engineTop10Fallback();   /* 用内置估算也返回独立的 Top-10 */
+    draw();
+    return;
+  }
+  rapfiWorker.onmessage = function (ev) {
+    var d = ev.data || {};
+    if (d.type === 'status') {
+      if (d.data === 'ready') {
+        rapfiState = 'ready';
+        if (engineOn) rapfiRequest();
+      } else {
+        rapfiState = 'failed';
+        engineBusy = false;
+        engineTop = engineTop10Fallback();
+        draw();
+      }
+    } else if (d.type === 'result') {
+      if (d.id !== rapfiSeq || !engineOn) return;   // 过期/失效结果丢弃
+      engineBusy = false;
+      engineTop = d.data && d.data.length ? d.data : engineTop10Fallback();
+      draw();
+    }
+  };
+  rapfiWorker.onerror = function () {
+    rapfiState = 'failed';
+    engineBusy = false;
+    engineTop = engineTop10Fallback();
+    draw();
+  };
+}
+
+function engineTop10Fallback() {
+  /* 用内置轻量估算器跑一遍，返回独立的 Top-10（不依赖 lastCands） */
+  var bd = buildBoard();
+  var me = state.moves.length % 2 === 0 ? 1 : 2;
+  var opp = me === 1 ? 2 : 1;
+  var oppCells = nearCells(bd);
+  /* 收集所有空点作为候选 */
+  var cands = [];
+  for (var c = 0; c < 225; c++) if (bd[c] === 0) cands.push(c);
+  var scored = [];
+  for (var i = 0; i < cands.length; i++) scored.push([cands[i], evalCell(bd, cands[i], me, oppCells)]);
+  scored.sort(function (a, b) { return b[1] - a[1]; });
+  return scored.slice(0, 10);
+}
+
+function rapfiRequest() {
+  rapfiStart();
+  if (rapfiState !== 'ready') {
+    /* 引擎尚未就绪，先显示兜底估算，避免开局空白 */
+    if (!engineTop) engineTop = engineTop10Fallback();
+    return;
+  }
+  var moves = [];
+  for (var i = 0; i < state.moves.length; i++) moves.push([state.moves[i], (i % 2 === 0) ? 1 : 2]);
+  rapfiSeq++;
+  engineBusy = true;
+  rapfiWorker.postMessage({ type: 'analyze', id: rapfiSeq, moves: moves, topN: 10, timeMs: 320 });
+  draw();   // 先把“引擎计算中…”标出来
+}
+
 function draw() {
   var size = canvas.width;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -665,24 +872,47 @@ function draw() {
     ctx.fillText(String(m + 1), cx(col), cy(row));
   }
 
-  for (var j = 0; j < lastCands.length; j++) {
-    var cell2 = lastCands[j][0], g = lastCands[j][1], w = lastCands[j][2], dd = lastCands[j][3];
-    var row2 = Math.floor(cell2 / 15), col2 = cell2 % 15;
-    var sr = g > 0 ? (w + dd * 0.5) / g : 0;
-    ctx.beginPath();
-    ctx.arc(cx(col2), cy(row2), CAND_R, 0, Math.PI * 2);
-    ctx.fillStyle = candColor(j);
-    ctx.globalAlpha = state.hoverCell === cell2 ? 1 : 0.88;
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    if (state.hoverCell === cell2) {
-      ctx.strokeStyle = '#5a3d16';
-      ctx.lineWidth = 2;
-      ctx.stroke();
+  /* 候选圆圈：引擎模式 → Rapfi/兜底的 Top-10 好点（独立于数据库）；
+   *          普通模式 → 数据库统计出来的候选点 + 得分率 */
+  if (engineOn && engineTop && engineTop.length) {
+    for (var k = 0; k < engineTop.length; k++) {
+      var ek = engineTop[k][0], ew = engineTop[k][1];
+      var er = Math.floor(ek / 15), ec = ek % 15;
+      ctx.beginPath();
+      ctx.arc(cx(ec), cy(er), CAND_R, 0, Math.PI * 2);
+      ctx.fillStyle = candColor(k);
+      ctx.globalAlpha = state.hoverCell === ek ? 1 : 0.88;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      if (state.hoverCell === ek) {
+        ctx.strokeStyle = '#5a3d16';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 13px "Microsoft YaHei", "PingFang SC", sans-serif';
+      ctx.fillText(String(Math.round(ew * 100)), cx(ec), cy(er));
     }
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 13px "Microsoft YaHei", "PingFang SC", sans-serif';
-    ctx.fillText(String(Math.round(sr * 100)), cx(col2), cy(row2));
+  } else if (!engineOn) {
+    for (var j = 0; j < lastCands.length; j++) {
+      var cell2 = lastCands[j][0], g = lastCands[j][1], w = lastCands[j][2], dd = lastCands[j][3];
+      var row2 = Math.floor(cell2 / 15), col2 = cell2 % 15;
+      var sr = g > 0 ? (w + dd * 0.5) / g : 0;
+      ctx.beginPath();
+      ctx.arc(cx(col2), cy(row2), CAND_R, 0, Math.PI * 2);
+      ctx.fillStyle = candColor(j);
+      ctx.globalAlpha = state.hoverCell === cell2 ? 1 : 0.88;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      if (state.hoverCell === cell2) {
+        ctx.strokeStyle = '#5a3d16';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 13px "Microsoft YaHei", "PingFang SC", sans-serif';
+      ctx.fillText(String(Math.round(sr * 100)), cx(col2), cy(row2));
+    }
   }
 
   /* 选手个人页：棋盘正上方显示选手执黑/执白的总盘数（走到此局面的总数，立体棋子） */
@@ -732,6 +962,21 @@ function draw() {
       }
     }
   }
+
+  /* 引擎模式：棋盘正上方左侧标注当前显示口径 */
+  if (engineOn && lastCands.length) {
+    ctx.font = 'bold 14px "Microsoft YaHei", "PingFang SC", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    var markY = PAD - 12;
+    ctx.fillStyle = engineBusy ? '#8a7a5c' : '#2f7cf6';
+    ctx.beginPath();
+    ctx.arc(cx(0) + 5, markY, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#4a3d20';
+    ctx.fillText(engineBusy ? t('engineBusy') : t('engineMark'), cx(0) + 15, markY);
+  }
 }
 
 /* ============================================================
@@ -779,6 +1024,8 @@ var I18N = {
     foot: '凌世杰 创建 · 数据来源 renju.net 官网 · 禁止商用',
     endHere: '在此终局的对局', resB: '黑胜', resW: '白胜', resD: '和棋',
     listCur: '现役', listWomen: '女子', listQT: 'QT资格', listAll: '全历史', listWomenAll: '女子全历史', ageUnit: '岁',
+    engineOn: 'Rapfi 胜率', engineOff: '返回得分率', engineMark: '引擎胜率', engineBusy: '引擎计算中…',
+    engineTop10: 'Rapfi Top-10 好点', engineWin: '引擎胜率', engineCalc: '计算中…',
     back: '← 返回选手榜',
     rifRating: 'RIF 等级分',
     total: '总战绩', winRate: '胜率', scoreRate: '得分率', asBlack: '执黑', asWhite: '执白', gamesUnit: ' 局', share: '占', withMoves: '其中含棋谱',
@@ -807,6 +1054,8 @@ var I18N = {
     foot: 'Created by Ling Shijie · Data: renju.net · No commercial use',
     endHere: 'Games ending here', resB: 'Black wins', resW: 'White wins', resD: 'Draw',
     listCur: 'Active', listWomen: 'Women', listQT: 'QT', listAll: 'All-time', listWomenAll: 'Women All-time', ageUnit: ' yrs',
+    engineOn: 'Rapfi Win %', engineOff: 'Back to Score', engineMark: 'Engine win%', engineBusy: 'Engine thinking…',
+    engineTop10: 'Rapfi Top-10 moves', engineWin: 'Engine win%', engineCalc: 'thinking…',
     back: '← Back to player list',
     rifRating: 'RIF rating',
     total: 'Overall', winRate: 'Win', scoreRate: 'Score', asBlack: 'As Black', asWhite: 'As White', gamesUnit: ' games', share: '', withMoves: 'with records',
@@ -835,6 +1084,8 @@ var I18N = {
     foot: '凌世杰 作成 · データ：renju.net 公式 · 商用禁止',
     endHere: 'ここで終局した対局', resB: '黒勝ち', resW: '白勝ち', resD: '引き分け',
     listCur: '現役', listWomen: '女子', listQT: 'QT', listAll: '全歴史', listWomenAll: '女子全歴史', ageUnit: '歳',
+    engineOn: 'Rapfi 勝率', engineOff: 'スコア率に戻す', engineMark: 'エンジン勝率', engineBusy: 'エンジン計算中…',
+    engineTop10: 'Rapfi Top-10 推奨手', engineWin: 'エンジン勝率', engineCalc: '計算中…',
     back: '← 選手一覧へ',
     rifRating: 'RIF レーティング',
     total: '通算', winRate: '勝率', scoreRate: 'スコア率', asBlack: '黒番', asWhite: '白番', gamesUnit: ' 局', share: '占', withMoves: 'うち棋譜あり',
@@ -863,6 +1114,8 @@ var I18N = {
     foot: 'Ling Shijie 제작 · 데이터: renju.net 공식 · 상업적 이용 금지',
     endHere: '여기서 끝난 대국', resB: '흑 승', resW: '백 승', resD: '무승부',
     listCur: '현역', listWomen: '여자', listQT: 'QT', listAll: '역대', listWomenAll: '여자 역대', ageUnit: '세',
+    engineOn: 'Rapfi 승률', engineOff: '득점률로 복귀', engineMark: '엔진 승률', engineBusy: '엔진 계산 중…',
+    engineTop10: 'Rapfi Top-10 추천 수', engineWin: '엔진 승률', engineCalc: '계산 중…',
     back: '← 선수 목록으로',
     rifRating: 'RIF 레이팅',
     total: '통산', winRate: '승률', scoreRate: '득점률', asBlack: '흑', asWhite: '백', gamesUnit: ' 국', share: '비중', withMoves: '기보 포함',
@@ -905,6 +1158,7 @@ function applyLang() {
   document.getElementById('btnReset').textContent = t('reset');
   document.getElementById('btnBack').title = t('undo');
   document.getElementById('btnFwd').title = t('redo');
+  document.getElementById('btnEngine').textContent = engineOn ? t('engineOff') : t('engineOn');
   document.getElementById('lblCand').textContent = t('candLabel');
   document.querySelectorAll('#langs button').forEach(function (b) {
     b.classList.toggle('on', b.dataset.lang === lang);
@@ -1001,12 +1255,19 @@ function refresh() {
   if (picking) {
     elDsInfo.textContent = t('picking');
     lastCands = [];
+    engineTop = null;
     document.getElementById('endGames').innerHTML = '';
     draw();
     return;
   }
 
   lastCands = candidates();
+  engineTop = null;           /* 每次刷新先清，等引擎异步回填 */
+  engineBusy = false;
+  if (engineOn) {
+    engineTop = engineTop10Fallback();   /* 立刻给兜底，避免开局空白 */
+    rapfiRequest();                      /* 异步用 Rapfi 覆盖 */
+  }
   draw();
 
   if (state.dataset === 'all') {
@@ -1071,39 +1332,54 @@ function refresh() {
       '<br>' + t('reached') + '<b>' + lastCands.reached.toLocaleString() + '</b>' + t('reachedEnd');
   }
 
-  elCandCount.textContent = lastCands.length + t('candUnit');
-  renderEndGames();
-  if (lastCands.length === 0) {
-    elCandList.innerHTML = '<li class="empty" style="cursor:default">' + t('noBranch') + '</li>';
-    return;
-  }
-  var isPlayerScope = state.dataset === 'player' && currentPlayer;
-  var html = '';
-  for (var j = 0; j < lastCands.length; j++) {
-    var cell = lastCands[j][0], g = lastCands[j][1], w = lastCands[j][2], d = lastCands[j][3];
-    var cls = j === 0 ? 'b' : (j <= 9 ? 'g' : 'y');
-    var content = g.toLocaleString() + t('gamesUnit') + ' · ' + t('scoreRate') + ' ' + fmtPct((w + d * 0.5) / g) +
-      ' · ' + t('winRate') + ' ' + fmtPct(w / g);
-    var pieceTag = '';
-    if (isPlayerScope) {
-      var bwH = lastCands[j][4] || 0, wwH = lastCands[j][5] || 0;
-      /* 方括号：该选手在本点执黑/执白各落多少次（只显示 >0 的） */
-      var tagParts = [];
-      if (bwH > 0) tagParts.push(t('black') + ' ' + bwH);
-      if (wwH > 0) tagParts.push(t('white') + ' ' + wwH);
-      if (tagParts.length) content += ' <b>[' + tagParts.join(' · ') + ']</b>';
-      /* 小圆圈：黑/白/并排 */
-      if (bwH > 0 && wwH > 0) pieceTag = '<span class="pieceTag mix"><span class="pieceTag k"></span><span class="pieceTag w"></span></span>';
-      else if (bwH > 0) pieceTag = '<span class="pieceTag k"></span>';
-      else if (wwH > 0) pieceTag = '<span class="pieceTag w"></span>';
+  /* 候选列表：引擎模式 → 引擎 Top-10；普通模式 → 数据库候选点 */
+  if (engineOn && engineTop && engineTop.length) {
+    elCandCount.textContent = t('engineTop10');
+    var html = '';
+    for (var k = 0; k < engineTop.length; k++) {
+      var ek2 = engineTop[k][0], ew2 = engineTop[k][1];
+      var ecls = k === 0 ? 'b' : (k <= 9 ? 'g' : 'y');
+      html += '<li data-cell="' + ek2 + '">' +
+        '<span class="rank ' + ecls + '">' + (k + 1) + '</span>' +
+        '<span class="coord">' + coordName(ek2) + '</span>' +
+        '<span class="bar">' + t('engineWin') + ' ' + fmtPct(ew2) +
+          (engineBusy ? ' · ' + t('engineCalc') : '') + '</span></li>';
     }
-    html += '<li data-cell="' + cell + '">' +
-      '<span class="rank ' + cls + '">' + (j + 1) + '</span>' +
-      pieceTag +
-      '<span class="coord">' + coordName(cell) + '</span>' +
-      '<span class="bar">' + content + '</span></li>';
+    elCandList.innerHTML = html;
+  } else if (!engineOn && lastCands.length) {
+    elCandCount.textContent = lastCands.length + t('candUnit');
+    renderEndGames();
+    var isPlayerScope = state.dataset === 'player' && currentPlayer;
+    var html = '';
+    for (var j = 0; j < lastCands.length; j++) {
+      var cell = lastCands[j][0], g = lastCands[j][1], w = lastCands[j][2], d = lastCands[j][3];
+      var cls = j === 0 ? 'b' : (j <= 9 ? 'g' : 'y');
+      var content = g.toLocaleString() + t('gamesUnit') + ' · ' + t('scoreRate') + ' ' + fmtPct((w + d * 0.5) / g) +
+        ' · ' + t('winRate') + ' ' + fmtPct(w / g);
+      var pieceTag = '';
+      if (isPlayerScope) {
+        var bwH = lastCands[j][4] || 0, wwH = lastCands[j][5] || 0;
+        /* 方括号：该选手在本点执黑/执白各落多少次（只显示 >0 的） */
+        var tagParts = [];
+        if (bwH > 0) tagParts.push(t('black') + ' ' + bwH);
+        if (wwH > 0) tagParts.push(t('white') + ' ' + wwH);
+        if (tagParts.length) content += ' <b>[' + tagParts.join(' · ') + ']</b>';
+        /* 小圆圈：黑/白/并排 */
+        if (bwH > 0 && wwH > 0) pieceTag = '<span class="pieceTag mix"><span class="pieceTag k"></span><span class="pieceTag w"></span></span>';
+        else if (bwH > 0) pieceTag = '<span class="pieceTag k"></span>';
+        else if (wwH > 0) pieceTag = '<span class="pieceTag w"></span>';
+      }
+      html += '<li data-cell="' + cell + '">' +
+        '<span class="rank ' + cls + '">' + (j + 1) + '</span>' +
+        pieceTag +
+        '<span class="coord">' + coordName(cell) + '</span>' +
+        '<span class="bar">' + content + '</span></li>';
+    }
+    elCandList.innerHTML = html;
+  } else {
+    elCandCount.textContent = (engineOn && engineBusy ? '' : (lastCands.length + t('candUnit')));
+    elCandList.innerHTML = '<li class="empty" style="cursor:default">' + t('noBranch') + '</li>';
   }
-  elCandList.innerHTML = html;
 }
 
 /* ============================================================
@@ -1167,6 +1443,21 @@ canvas.addEventListener('pointerleave', function () {
 
 document.getElementById('btnBack').addEventListener('click', undo);
 document.getElementById('btnFwd').addEventListener('click', redo);
+var btnEngine = document.getElementById('btnEngine');
+btnEngine.addEventListener('click', function () {
+  engineOn = !engineOn;
+  btnEngine.classList.toggle('on', engineOn);
+  btnEngine.textContent = engineOn ? t('engineOff') : t('engineOn');
+  engineBusy = false;
+  if (engineOn) {
+    engineTop = engineTop10Fallback();
+    rapfiRequest();
+  } else {
+    engineTop = null;
+    rapfiSeq++;   /* 丢弃进行中的引擎请求 */
+  }
+  draw();
+});
 document.getElementById('btnReset').addEventListener('click', function () {
   state.moves = [];
   redoStack.length = 0;
@@ -1233,6 +1524,10 @@ elCandList.addEventListener('click', function (ev) {
   var li = ev.target.closest('li[data-cell]');
   if (!li) return;
   var cell = parseInt(li.getAttribute('data-cell'), 10);
+  /* 引擎模式下，引擎自选点也是合法落子点 */
+  if (engineOn && engineTop) {
+    for (var i = 0; i < engineTop.length; i++) if (engineTop[i][0] === cell) { playCell(cell); return; }
+  }
   if (!isCandidate(cell)) return;
   playCell(cell);
 });
