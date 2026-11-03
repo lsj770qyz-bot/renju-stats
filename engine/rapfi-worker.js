@@ -1,6 +1,6 @@
-/* Rapfi (GPL-3.0) WASM 引擎 Worker — 带详细 debug log
-   把 onReceiveStdout 收到的每一行都 postMessage 回主线程，
-   让主线程能看到 Rapfi 实际输出了什么，从而定位流式为什么不工作。 */
+/* Rapfi (GPL-3.0) WASM 引擎 Worker。
+   流式推送：每轮完整 idx=0..9 后立即 postMessage('progress') 给主线程，
+   同时降低触发门槛确保首轮就能出结果。 */
 
 importScripts('rapfi-single-simd128.js');
 
@@ -25,11 +25,8 @@ function cellOfCoord(str) {
   return y * 15 + x;
 }
 
-function emitProgress() {
-  if (!sess || !currentReq) return;
-  sess.round++;
-  sess.roundTime = Date.now();
-
+/* 从 sess.log 解析最新完整 Top-N：从最后一个 idx=0 起，取后面所有有 wr+mv 的 idx */
+function parseLatest() {
   var log = sess.log;
   var blocks = [];
   for (var i = 0; i < log.length; i++) {
@@ -42,28 +39,35 @@ function emitProgress() {
       else if (l.indexOf('INFO BESTLINE ') === 0) b.mv = l.slice(14).trim().split(' ')[0];
     }
   }
-  var start = 0;
-  for (var j = blocks.length - 1; j >= 0; j--) if (blocks[j].idx === 0) { start = j; break; }
+  var start = -1;
+  for (var j = blocks.length - 1; j >= 0; j--) {
+    if (blocks[j].idx === 0) { start = j; break; }
+  }
+  if (start < 0) return null;
   var round = blocks.slice(start);
   var map = {};
   for (var k = 0; k < round.length; k++) map[round[k].idx] = round[k];
   var out = [];
   for (var idx = 0; idx <= 9; idx++) {
     var b = map[idx];
-    if (b && b.wr != null && isFinite(b.wr)) {
+    if (b && b.wr != null && isFinite(b.wr) && b.mv) {
       var c = cellOfCoord(b.mv);
       if (c >= 0) out.push([c, Math.max(0, Math.min(1, b.wr))]);
     }
   }
+  return out.length >= 1 ? out : null;
+}
 
-  send('_dbg', 'emitProgress round=' + sess.round + ' logLen=' + log.length + ' blocks=' + blocks.length + ' outLen=' + out.length);
-
-  if (out.length >= 4) {
-    sess.latest = out;
-    if (!sess.lastSendT || Date.now() - sess.lastSendT > 150) {
-      sess.lastSendT = Date.now();
-      send('progress', out, { id: currentReq.id, ms: sess.lastSendT - sess.startT, round: sess.round });
-    }
+function tryEmitProgress() {
+  if (!sess || !currentReq) return;
+  var out = parseLatest();
+  if (!out) return;
+  sess.round++;
+  sess.latest = out;
+  /* 去抖：每 250ms 最多推一次 */
+  if (!sess.lastSendT || Date.now() - sess.lastSendT > 250) {
+    sess.lastSendT = Date.now();
+    send('progress', out, { id: currentReq.id, ms: sess.lastSendT - sess.startT, round: sess.round });
   }
 }
 
@@ -72,10 +76,10 @@ self.onmessage = function (e) {
   if (d.type === 'analyze') {
     if (!ready) { send('result', [], { id: d.id, ms: 0, error: 'not-ready' }); return; }
     currentReq = d;
-    sess = { log: [], round: 0, startT: Date.now(), cur: null, latest: null, lastSendT: 0 };
-    send('_dbg', 'ANALYZE start id=' + d.id);
+    sess = { log: [], round: 0, startT: Date.now(), latest: null, lastSendT: 0 };
 
-    var t = Math.max(1500, Math.min(5000, d.timeMs || 2500));
+    /* 时间拉长到 4s（浏览器 WASM 比 Node 慢） */
+    var t = Math.max(3000, Math.min(6000, d.timeMs || 4000));
     var lines = [];
     var mv = d.moves || [];
     for (var i = 0; i < mv.length; i++) {
@@ -88,13 +92,10 @@ self.onmessage = function (e) {
     M.sendCommand('INFO timeout_turn ' + t);
     M.sendCommand('YXBOARD\n' + (lines.length ? lines.join('\n') + '\n' : '') + 'DONE');
     var n = Math.max(4, Math.min(20, d.topN || 12));
-
-    send('_dbg', 'BEFORE YXNBEST  logLen=' + sess.log.length);
-    var t0 = Date.now();
+    /* 发 YXNBEST → 引擎同步搜索 */
     M.sendCommand('YXNBEST ' + n);
-    send('_dbg', 'AFTER YXNBEST  blocked_ms=' + (Date.now() - t0) + ' logLen=' + sess.log.length + ' rounds=' + sess.round);
-
-    var final = sess.latest;
+    /* sendCommand 返回时搜索已结束，发最终结果 */
+    var final = sess.latest || parseLatest();
     send('result', final || [], { id: d.id, ms: Date.now() - sess.startT, round: sess.round });
     sess = null;
     currentReq = null;
@@ -103,29 +104,18 @@ self.onmessage = function (e) {
   }
 };
 
-/* ---------- 启动 ---------- */
+/* ---------- 启动 + 实时 stdout 回调 ---------- */
 Rapfi({
   locateFile: function (p) { return p; },
   onReceiveStdout: function (l) {
-    /* 每条 stdout 都转发到主线程方便 debug（限 PV/WINRATE/BESTLINE/DONE 这些） */
-    if (l.indexOf('INFO PV ') === 0 || l.indexOf('INFO WINRATE ') === 0 ||
-        l.indexOf('INFO BESTLINE ') === 0 || l.indexOf('INFO PV DONE') === 0) {
-      /* 注意：postMessage 自己也走主线程队列，这里不能同步触发主线程 handler，
-         但 self.postMessage 本身开销极小 */
-      // self.postMessage({ type: '_dbg_line', data: l });  // 太吵，关掉
-    }
-
     if (!sess) return;
     sess.log.push(l);
-
-    if (l.indexOf('INFO PV ') === 0 && l !== 'INFO PV DONE') {
-      sess.cur = { idx: parseInt(l.slice(8), 10), wr: null, mv: null };
-    } else if (sess.cur) {
-      if (l.indexOf('INFO WINRATE ') === 0) sess.cur.wr = parseFloat(l.slice(12));
-      else if (l.indexOf('INFO BESTLINE ') === 0) sess.cur.mv = l.slice(14).trim().split(' ')[0];
-      else if (l === 'INFO PV DONE' && sess.cur.idx === 9) {
-        emitProgress();
-      }
+    /* INFO BESTLINE 一定紧随 INFO WINRATE（见 Rapfi 源码输出顺序），
+       此时 idx=0..N 的 wr 和 mv 都已完整，用 BESTLINE 触发最稳妥 */
+    if (l.indexOf('INFO BESTLINE ') === 0) {
+      tryEmitProgress();
+    } else if (l === 'INFO PV DONE') {
+      tryEmitProgress();
     }
   },
   onReceiveStderr: function () {},
