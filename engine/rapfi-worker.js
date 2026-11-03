@@ -1,5 +1,6 @@
-/* Rapfi (GPL-3.0) WASM 引擎 Worker — 增量流式 + 可取消
-   优化：增量维护 sess.map（O(1)），新请求自动 cancel 旧的 */
+/* Rapfi (GPL-3.0) WASM 引擎 Worker — 持续循环搜索 + 流式推送
+   按下按钮后：一直循环 YXNBEST（每轮 1500ms timeout），直到用户关闭按钮
+   每轮内部增量流式推送（~200ms 去抖） */
 
 importScripts('rapfi-single-simd128.js');
 
@@ -8,6 +9,7 @@ var ready = false;
 var currentReq = null;
 var sess = null;
 var latestReqId = 0;
+var loopTimer = null;
 
 function send(type, data, extra) {
   var msg = { type: type };
@@ -40,7 +42,6 @@ function buildOut() {
 
 function tryEmitProgress() {
   if (!sess || !currentReq) return;
-  /* 新请求来了，旧请求的 progress 直接丢掉 */
   if (currentReq.id !== latestReqId) return;
   var out = buildOut();
   if (!out) return;
@@ -53,36 +54,60 @@ function tryEmitProgress() {
   }
 }
 
+/* 跑一轮 YXNBEST（同步阻塞 ~1.5s），跑完 setTimeout 再跑下一轮 */
+function runRound() {
+  if (!currentReq || currentReq.id !== latestReqId) {
+    sess = null;
+    return; /* 请求已取消 */
+  }
+  sess = { map: {}, round: sess ? sess.round : 0, startT: sess ? sess.startT : Date.now(),
+           latest: sess ? sess.latest : null, lastSendT: 0, cur: null };
+  
+  M.sendCommand('INFO timeout_turn 1500');
+  M.sendCommand('YXBOARD\n' + currentReq.boardText + 'DONE');
+  M.sendCommand('YXNBEST ' + (currentReq.topN || 10));
+  
+  /* 本轮结束，发 final result，然后循环 */
+  var final = buildOut();
+  if (currentReq && currentReq.id === latestReqId) {
+    send('result', final || sess.latest || [], { id: currentReq.id, ms: Date.now() - sess.startT, round: sess.round });
+  }
+  
+  if (currentReq && currentReq.id === latestReqId) {
+    /* 100ms 间隔释放事件循环，让主线程消息能进来 */
+    loopTimer = setTimeout(runRound, 100);
+  } else {
+    sess = null;
+    currentReq = null;
+  }
+}
+
 self.onmessage = function (e) {
   var d = e.data || {};
   if (d.type === 'analyze') {
-    /* 标记新请求，旧请求后续 emit 会被丢弃 */
-    latestReqId = d.id;
+    latestReqId = d.id;  /* 标记新请求，旧的自动作废 */
+    if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }
     if (!ready) { send('result', [], { id: d.id, ms: 0, error: 'not-ready' }); return; }
-    currentReq = d;
-    sess = { map: {}, round: 0, startT: Date.now(), latest: null, lastSendT: 0, cur: null };
-
-    var t = Math.max(1200, Math.min(3000, d.timeMs || 2000));
+    
+    /* 序列化棋盘 */
     var lines = [];
     var mv = d.moves || [];
     for (var i = 0; i < mv.length; i++) {
       var cell = mv[i][0];
       lines.push((cell % 15) + ',' + Math.floor(cell / 15) + ',' + mv[i][1]);
     }
+    d.boardText = lines.length ? lines.join('\n') + '\n' : '';
+    
+    /* 先发 YXBOARD 建立局面 */
     M.sendCommand('INFO rule 4');
     M.sendCommand('INFO caution_factor 0');
     M.sendCommand('INFO show_detail 2');
-    M.sendCommand('INFO timeout_turn ' + t);
-    M.sendCommand('YXBOARD\n' + (lines.length ? lines.join('\n') + '\n' : '') + 'DONE');
-    var n = Math.max(4, Math.min(20, d.topN || 10));
-    M.sendCommand('YXNBEST ' + n);
-    /* sendCommand 同步返回 → 发最终 result */
-    if (currentReq && currentReq.id === d.id) {
-      var final = sess.latest || buildOut();
-      send('result', final || [], { id: d.id, ms: Date.now() - sess.startT, round: sess.round });
-    }
-    sess = null;
-    currentReq = null;
+    M.sendCommand('INFO timeout_turn 1500');
+    M.sendCommand('YXBOARD\n' + d.boardText + 'DONE');
+    
+    currentReq = d;
+    runRound();  /* 立即开始第一轮（同步阻塞 ~1.5s），之后自动循环 */
+    
   } else if (d.type === 'ping') {
     send('pong', ready);
   }
@@ -93,7 +118,7 @@ Rapfi({
   locateFile: function (p) { return p; },
   onReceiveStdout: function (l) {
     if (!sess) return;
-    if (currentReq && currentReq.id !== latestReqId) return;  /* 旧请求，忽略输出 */
+    if (currentReq && currentReq.id !== latestReqId) return;
     if (l.indexOf('INFO PV ') === 0 && l !== 'INFO PV DONE') {
       sess.cur = parseInt(l.slice(8), 10);
     } else if (sess.cur != null) {
