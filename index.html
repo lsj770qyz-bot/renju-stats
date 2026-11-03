@@ -613,6 +613,7 @@ function candColor(rank) {
 }
 
 var lastCands = [];
+var endedGames = [];   /* 在当前局面正好走完全部棋谱的对局编号（去重） */
 
 /* ============================================================
  *  胜率显示：开源连珠引擎 Rapfi（WASM，懒加载）为正式口径，
@@ -949,6 +950,77 @@ function requestDraw() {
   });
 }
 
+/* 棋盘上方的小立体棋子（用于标注对局双方） */
+function drawMiniStone(x, y, r, isBlack) {
+  var grad = ctx.createRadialGradient(x - r / 3, y - r / 3, r / 5, x, y, r);
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+  if (isBlack) {
+    grad.addColorStop(0, '#5a5a5a'); grad.addColorStop(0.65, '#2a2a2a'); grad.addColorStop(1, '#111');
+    ctx.fillStyle = grad; ctx.fill();
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.stroke();
+  } else {
+    grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.6, '#e0e0e0'); grad.addColorStop(1, '#b8b8b8');
+    ctx.fillStyle = grad; ctx.fill();
+    ctx.strokeStyle = '#777'; ctx.lineWidth = 1; ctx.stroke();
+  }
+}
+
+/* 棋盘上方：对局全部摆完时，显示这一局的黑白双方（黑方在前、白方在后）
+ * 只在 Top100 与选手个人页显示；全部对局页不显示 */
+function drawEndGameTitle() {
+  if (!endedGames.length) return;
+  if (state.dataset === 'all') return;
+  /* 优先选用两边选手名都齐全的对局，避免显示 #pid */
+  var g = endedGames[0], i;
+  for (i = 0; i < endedGames.length; i++) {
+    var gi = endedGames[i];
+    if (RAW.pname[String(BLACK[gi])] && RAW.pname[String(WHITE[gi])]) { g = gi; break; }
+  }
+  var bName = playerLabel(BLACK[g]);
+  var wName = playerLabel(WHITE[g]);
+  var more = endedGames.length > 1 ? t('endMore1') + endedGames.length + t('endMore2') : '';
+  var sep = '  vs  ';
+  var maxW = cx(N - 1) - cx(0);
+  var fontPx = 15, fontStr = '', stoneR = 0, wB = 0, wW = 0, wSep = 0, wMore = 0, total = 0;
+  /* 名字太长时自动缩小字号，保证不超出棋盘宽度 */
+  for (; fontPx >= 10; fontPx--) {
+    fontStr = 'bold ' + fontPx + 'px "Microsoft YaHei", "PingFang SC", sans-serif';
+    ctx.font = fontStr;
+    stoneR = fontPx * 0.42;
+    wB = ctx.measureText(bName).width;
+    wW = ctx.measureText(wName).width;
+    wSep = ctx.measureText(sep).width;
+    wMore = more ? ctx.measureText(more).width : 0;
+    total = 4 * stoneR + 10 + wB + wSep + wW + wMore;
+    if (total <= maxW) break;
+  }
+  var y = PAD - 32;
+  var x = (cx(0) + cx(N - 1)) / 2 - total / 2;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  /* 黑方：棋子 + 名字 */
+  drawMiniStone(x + stoneR, y, stoneR, true);
+  x += stoneR * 2 + 5;
+  ctx.font = fontStr;
+  ctx.fillStyle = '#3f3320';
+  ctx.fillText(bName, x, y);
+  x += wB;
+  ctx.fillStyle = '#8a7a5c';
+  ctx.fillText(sep, x, y);
+  x += wSep;
+  /* 白方：棋子 + 名字 */
+  drawMiniStone(x + stoneR, y, stoneR, false);
+  x += stoneR * 2 + 5;
+  ctx.fillStyle = '#3f3320';
+  ctx.fillText(wName, x, y);
+  x += wW;
+  if (more) {
+    ctx.font = 'bold ' + Math.max(10, Math.round(fontPx * 0.8)) + 'px "Microsoft YaHei", "PingFang SC", sans-serif';
+    ctx.fillStyle = '#a08c62';
+    ctx.fillText(more, x, y);
+  }
+}
+
 function draw() {
   ctx.save();  /* 保护 canvas 状态：任何修改都不会泄漏 */
   var size = canvas.width;
@@ -1067,6 +1139,9 @@ function draw() {
     }
   }
 
+  /* 对局全部摆完：棋盘上方显示这一局的黑白双方 */
+  drawEndGameTitle();
+
   /* 选手个人页：棋盘正上方显示选手执黑/执白的总盘数（走到此局面的总数，立体棋子） */
   if (state.dataset === 'player' && currentPlayer && lastCands.length) {
     var sB = lastCands.bw0 || 0;
@@ -1179,6 +1254,7 @@ var I18N = {
     listCur: '现役', listWomen: '女子', listQT: 'QT资格', listAll: '全历史', listWomenAll: '女子全历史', ageUnit: '岁',
     engineOn: 'Rapfi 胜率', engineOff: '返回得分率', engineMark: '引擎胜率', engineBusy: '引擎计算中…',
     engineTop10: 'Rapfi Top-10 好点', engineWin: '引擎胜率', engineCalc: '计算中…',
+    endMore1: '（共 ', endMore2: ' 局）',
     back: '← 返回选手榜',
     rifRating: 'RIF 等级分',
     total: '总战绩', winRate: '胜率', scoreRate: '得分率', asBlack: '执黑', asWhite: '执白', gamesUnit: ' 局', share: '占', withMoves: '其中含棋谱',
@@ -1209,6 +1285,7 @@ var I18N = {
     listCur: 'Active', listWomen: 'Women', listQT: 'QT', listAll: 'All-time', listWomenAll: 'Women All-time', ageUnit: ' yrs',
     engineOn: 'Rapfi Win %', engineOff: 'Back to Score', engineMark: 'Engine win%', engineBusy: 'Engine thinking…',
     engineTop10: 'Rapfi Top-10 moves', engineWin: 'Engine win%', engineCalc: 'thinking…',
+    endMore1: ' (', endMore2: ' games)',
     back: '← Back to player list',
     rifRating: 'RIF rating',
     total: 'Overall', winRate: 'Win', scoreRate: 'Score', asBlack: 'As Black', asWhite: 'As White', gamesUnit: ' games', share: '', withMoves: 'with records',
@@ -1239,6 +1316,7 @@ var I18N = {
     listCur: '現役', listWomen: '女子', listQT: 'QT', listAll: '全歴史', listWomenAll: '女子全歴史', ageUnit: '歳',
     engineOn: 'Rapfi 勝率', engineOff: 'スコア率に戻す', engineMark: 'エンジン勝率', engineBusy: 'エンジン計算中…',
     engineTop10: 'Rapfi Top-10 推奨手', engineWin: 'エンジン勝率', engineCalc: '計算中…',
+    endMore1: '（全 ', endMore2: ' 局）',
     back: '← 選手一覧へ',
     rifRating: 'RIF レーティング',
     total: '通算', winRate: '勝率', scoreRate: 'スコア率', asBlack: '黒番', asWhite: '白番', gamesUnit: ' 局', share: '占', withMoves: 'うち棋譜あり',
@@ -1269,6 +1347,7 @@ var I18N = {
     listCur: '현역', listWomen: '여자', listQT: 'QT', listAll: '역대', listWomenAll: '여자 역대', ageUnit: '세',
     engineOn: 'Rapfi 승률', engineOff: '득점률로 복귀', engineMark: '엔진 승률', engineBusy: '엔진 계산 중…',
     engineTop10: 'Rapfi Top-10 추천 수', engineWin: '엔진 승률', engineCalc: '계산 중…',
+    endMore1: ' (총 ', endMore2: ' 국)',
     back: '← 선수 목록으로',
     rifRating: 'RIF 레이팅',
     total: '통산', winRate: '승률', scoreRate: '득점률', asBlack: '흑', asWhite: '백', gamesUnit: ' 국', share: '비중', withMoves: '기보 포함',
@@ -1384,16 +1463,14 @@ function playerLabel(pid) {
 }
 function renderEndGames() {
   var n = state.moves.length;
-  if (n === 0 || !matchList.length) { elEndGames.innerHTML = ''; return; }
+  if (n === 0 || !endedGames.length) { elEndGames.innerHTML = ''; return; }
   var rows = [];
-  for (var i = 0; i < matchList.length; i++) {
-    var g = matchList[i] >> 3;
-    if (LENS[g] === n) {
-      var r = RES[g] & 3;
-      rows.push('<li><span class="yr">' + (YEAR[g] + 1900) + '</span> ' +
-        playerLabel(BLACK[g]) + ' vs ' + playerLabel(WHITE[g]) +
-        ' · <b>' + (r === 0 ? t('resB') : r === 1 ? t('resW') : t('resD')) + '</b></li>');
-    }
+  for (var i = 0; i < endedGames.length; i++) {
+    var g = endedGames[i];
+    var r = RES[g] & 3;
+    rows.push('<li><span class="yr">' + (YEAR[g] + 1900) + '</span> ' +
+      playerLabel(BLACK[g]) + ' vs ' + playerLabel(WHITE[g]) +
+      ' · <b>' + (r === 0 ? t('resB') : r === 1 ? t('resW') : t('resD')) + '</b></li>');
   }
   elEndGames.innerHTML = rows.length
     ? '<div class="egt">' + t('endHere') + '（' + rows.length + '）</div><ul>' + rows.join('') + '</ul>'
@@ -1408,6 +1485,7 @@ function refresh() {
   if (picking) {
     elDsInfo.textContent = t('picking');
     lastCands = [];
+    endedGames = [];
     engineTop = null;
     syncEngineAnim(null);
     stopAnim();
@@ -1417,6 +1495,15 @@ function refresh() {
   }
 
   lastCands = candidates();
+  /* 统计在当前局面正好走完全部棋谱的对局（matchList 含 8 个对称条目，按对局号去重） */
+  endedGames = [];
+  var seenEnd = {};
+  for (var ei = 0; ei < matchList.length; ei++) {
+    var eg = matchList[ei] >> 3;
+    if (seenEnd[eg]) continue;
+    seenEnd[eg] = 1;
+    if (LENS[eg] === state.moves.length) endedGames.push(eg);
+  }
   engineTop = null;           /* 每次刷新先清，等引擎异步回填 */
   syncEngineAnim(null);       /* 同步清动画，避免旧动画覆盖新状态 */
   engineBusy = false;
