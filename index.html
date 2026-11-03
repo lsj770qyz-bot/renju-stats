@@ -1353,6 +1353,8 @@ function refresh() {
     elDsInfo.textContent = t('picking');
     lastCands = [];
     engineTop = null;
+    syncEngineAnim(null);
+    stopAnim();
     document.getElementById('endGames').innerHTML = '';
     draw();
     return;
@@ -1360,9 +1362,13 @@ function refresh() {
 
   lastCands = candidates();
   engineTop = null;           /* 每次刷新先清，等引擎异步回填 */
+  syncEngineAnim(null);       /* 同步清动画，避免旧动画覆盖新状态 */
   engineBusy = false;
   if (engineOn) {
-    engineTop = engineTop10Fallback();   /* 立刻给兜底，避免开局空白 */
+    var fb = engineTop10Fallback();   /* 立刻给兜底，避免开局空白 */
+    engineTop = fb;
+    syncEngineAnim(fb);               /* 兜底也走动画 */
+    startAnim();
     rapfiRequest();                      /* 异步用 Rapfi 覆盖 */
   }
   draw();

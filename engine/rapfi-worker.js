@@ -58,7 +58,7 @@ function tryEmitProgress() {
   }
 }
 
-/* 跑一轮 YXNBEST（同步阻塞 ~1.5s），跑完 setTimeout 再跑下一轮 */
+/* 跑一轮 YXNBEST（同步阻塞 ~2.5s），跑完 setTimeout 再跑下一轮 */
 function runRound() {
   if (!currentReq || currentReq.id !== latestReqId) {
     sess = null;
@@ -67,6 +67,10 @@ function runRound() {
   sess = { map: {}, round: sess ? sess.round : 0, startT: sess ? sess.startT : Date.now(),
            latest: sess ? sess.latest : null, lastSendT: 0, cur: null };
   
+  /* 每轮都重新建立局面 + 设置参数（安全，Rapfi 支持重复发送） */
+  M.sendCommand('INFO rule 4');
+  M.sendCommand('INFO caution_factor 0');
+  M.sendCommand('INFO show_detail 2');
   M.sendCommand('INFO timeout_turn ' + ROUND_TIMEOUT_MS);
   M.sendCommand('YXBOARD\n' + currentReq.boardText + 'DONE');
   M.sendCommand('YXNBEST ' + (currentReq.topN || 10));
@@ -93,7 +97,7 @@ self.onmessage = function (e) {
     if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }
     if (!ready) { send('result', [], { id: d.id, ms: 0, error: 'not-ready' }); return; }
     
-    /* 序列化棋盘 */
+    /* 序列化棋盘 —— 只做数据准备，不 sendCommand（避免阻塞 onmessage） */
     var lines = [];
     var mv = d.moves || [];
     for (var i = 0; i < mv.length; i++) {
@@ -102,15 +106,9 @@ self.onmessage = function (e) {
     }
     d.boardText = lines.length ? lines.join('\n') + '\n' : '';
     
-    /* 先发 YXBOARD 建立局面 */
-    M.sendCommand('INFO rule 4');
-    M.sendCommand('INFO caution_factor 0');
-    M.sendCommand('INFO show_detail 2');
-    M.sendCommand('INFO timeout_turn 1500');
-    M.sendCommand('YXBOARD\n' + d.boardText + 'DONE');
-    
     currentReq = d;
-    runRound();  /* 立即开始第一轮（同步阻塞 ~1.5s），之后自动循环 */
+    /* setTimeout 0 让 onmessage 先返回（释放 Worker 事件循环），再跑第一轮 */
+    setTimeout(runRound, 0);
     
   } else if (d.type === 'ping') {
     send('pong', ready);
