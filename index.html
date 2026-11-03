@@ -622,6 +622,9 @@ var lastCands = [];
 var engineOn = false;
 var engineTop = null;    /* 引擎自选 Top-10：[[cell, wr], ...]，引擎模式下直接驱动棋盘显示 */
 var engineBusy = false;  /* 正在等 Rapfi 结果 */
+/* 动画：圆圈 wr/alpha 平滑过渡，避免数值瞬间跳变 */
+var engineAnim = [];     /* [{cell, wr, targetWr, alpha, targetAlpha, rank, targetRank}] */
+var animRafId = 0;       /* rAF 循环 id */
 
 var EDIR = [[0, 1], [1, 0], [1, 1], [1, -1]];
 
@@ -764,29 +767,110 @@ function rapfiStart() {
       } else {
         rapfiState = 'failed';
         engineBusy = false;
-        engineTop = engineTop10Fallback();
-        draw();
+        var fb = engineTop10Fallback();
+        engineTop = fb;
+        syncEngineAnim(fb);
+        startAnim();
       }
     } else if (d.type === 'progress') {
       if (d.id !== rapfiSeq || !engineOn) return;
       if (d.data && d.data.length) {
         engineTop = d.data;
-        draw();
+        syncEngineAnim(d.data);
+        startAnim();
       }
     } else if (d.type === 'result') {
       if (d.id !== rapfiSeq || !engineOn) return;
       engineBusy = false;
-      if (d.data && d.data.length) engineTop = d.data;
-      draw();
+      if (d.data && d.data.length) {
+        engineTop = d.data;
+        syncEngineAnim(d.data);
+        startAnim();
+      }
     }
   };
   rapfiWorker.onerror = function () {
     rapfiState = 'failed';
     engineBusy = false;
-    engineTop = engineTop10Fallback();
-    draw();
+    var fb2 = engineTop10Fallback();
+    engineTop = fb2;
+    syncEngineAnim(fb2);
+    startAnim();
   };
 }
+
+/* ------ 引擎圆圈动画系统 ------
+ * engineAnim 是一个 cell 级别的动画状态数组，包含当前值 + 目标值
+ * syncEngineAnim(target) —— 把引擎新结果同步为目标值（不直接动当前值）
+ * animTick() —— rAF 循环，每帧 lerp 当前值向目标值逼近，同时 draw()
+ * 效果：圆圈数字、排名颜色、透明度都平滑过渡，不瞬间跳变 */
+
+function syncEngineAnim(target) {
+  if (!target) { engineAnim = []; return; }
+  /* cell → new rank 映射 */
+  var newMap = {};
+  for (var i = 0; i < target.length; i++) newMap[target[i][0]] = i;
+  var newCells = {}; for (var k in newMap) newCells[k] = true;
+
+  /* 更新已有条目 + 标记消失 */
+  var oldMap = {};
+  for (var j = 0; j < engineAnim.length; j++) {
+    var a = engineAnim[j]; oldMap[a.cell] = j;
+    if (newCells[a.cell]) {
+      var newRank = newMap[a.cell];
+      a.targetWr = target[newRank][1];
+      a.targetRank = newRank;
+      a.targetAlpha = 1;
+    } else {
+      a.targetAlpha = 0;  /* 淡出 */
+    }
+  }
+  /* 新 cell → 淡入 */
+  for (var c in newCells) if (!oldMap[c]) {
+    var newR = newMap[c];
+    engineAnim.push({
+      cell: +c, wr: target[newR][1], targetWr: target[newR][1],
+      alpha: 0, targetAlpha: 1,
+      rank: newR, targetRank: newR
+    });
+  }
+}
+
+/* candColor 的 lerp：取 rank0/1/2 的 RGB，按 rank 权重混合 */
+function candColorLerp(fromRank, toRank, t) {
+  var palette = ['#2f7cf6', '#34a853', '#f1b82c', '#9aa0a6'];
+  var fr = palette[Math.max(0, Math.min(3, fromRank))];
+  var tr = palette[Math.max(0, Math.min(3, toRank))];
+  if (fr === tr) return fr;
+  var fh = fr.slice(1), th = tr.slice(1);
+  var r1 = parseInt(fh.substr(0, 2),16), g1 = parseInt(fh.substr(2,2),16), b1 = parseInt(fh.substr(4,2),16);
+  var r2 = parseInt(th.substr(0, 2),16), g2 = parseInt(th.substr(2,2),16), b2 = parseInt(th.substr(4,2),16);
+  var r = Math.round(r1 + (r2-r1)*t), g = Math.round(g1 + (g2-g1)*t), b = Math.round(b1 + (b2-b1)*t);
+  return '#' + [r,g,b].map(function(x){var h=x.toString(16);return h.length<2?'0'+h:h}).join('');
+}
+
+/* rAF 动画循环 */
+function animTick() {
+  if (!engineOn) { animRafId = 0; engineAnim = []; draw(); return; }
+  var LERP = 0.22;  /* 每帧 22% 逼近目标 ≈ 0.6s 完全过渡 */
+  var maxAlpha = 0;
+  for (var i = 0; i < engineAnim.length; i++) {
+    var a = engineAnim[i];
+    a.wr += (a.targetWr - a.wr) * LERP;
+    a.rank += (a.targetRank - a.rank) * LERP;
+    a.alpha += (a.targetAlpha - a.alpha) * LERP;
+    if (a.alpha > 0.02 && a.alpha < a.targetAlpha - 0.01) maxAlpha = 1;
+    if (a.alpha > maxAlpha) maxAlpha = a.alpha;
+  }
+  /* 清理完全淡出的 */
+  engineAnim = engineAnim.filter(function(a){ return a.alpha > 0.05 || a.targetAlpha > 0.05; });
+  draw();
+  animRafId = requestAnimationFrame(animTick);
+}
+
+/* 启动/停止动画循环 */
+function startAnim() { if (!animRafId) animRafId = requestAnimationFrame(animTick); }
+function stopAnim() { if (animRafId) { cancelAnimationFrame(animRafId); animRafId = 0; } }
 
 function engineTop10Fallback() {
   /* 用内置轻量估算器跑一遍，返回独立的 Top-10（不依赖 lastCands） */
@@ -814,7 +898,7 @@ function rapfiRequest() {
   for (var i = 0; i < state.moves.length; i++) moves.push([state.moves[i], (i % 2 === 0) ? 1 : 2]);
   rapfiSeq++;
   engineBusy = true;
-  rapfiWorker.postMessage({ type: 'analyze', id: rapfiSeq, moves: moves, topN: 10, timeMs: 2000 });
+  rapfiWorker.postMessage({ type: 'analyze', id: rapfiSeq, moves: moves, topN: 10, timeMs: 2500 });
   draw();   // 先把“引擎计算中…”标出来
 }
 
@@ -878,16 +962,19 @@ function draw() {
     ctx.fillText(String(m + 1), cx(col), cy(row));
   }
 
-  /* 候选圆圈：引擎模式 → Rapfi/兜底的 Top-10 好点（独立于数据库）；
+  /* 候选圆圈：引擎模式 → engineAnim（lerp 动画状态，平滑过渡）；
    *          普通模式 → 数据库统计出来的候选点 + 得分率 */
-  if (engineOn && engineTop && engineTop.length) {
-    for (var k = 0; k < engineTop.length; k++) {
-      var ek = engineTop[k][0], ew = engineTop[k][1];
+  if (engineOn && engineAnim.length) {
+    for (var k = 0; k < engineAnim.length; k++) {
+      var a = engineAnim[k];
+      if (a.alpha < 0.02) continue;
+      var ek = a.cell, ew = a.wr;
       var er = Math.floor(ek / 15), ec = ek % 15;
       ctx.beginPath();
       ctx.arc(cx(ec), cy(er), CAND_R, 0, Math.PI * 2);
-      ctx.fillStyle = candColor(k);
-      ctx.globalAlpha = state.hoverCell === ek ? 1 : 0.88;
+      /* rank lerp → 颜色平滑过渡 */
+      ctx.fillStyle = candColorLerp(a.rank, a.targetRank, 1);
+      ctx.globalAlpha = Math.max(0, Math.min(1, a.alpha)) * (state.hoverCell === ek ? 1 : 0.88);
       ctx.fill();
       ctx.globalAlpha = 1;
       if (state.hoverCell === ek) {
@@ -897,8 +984,10 @@ function draw() {
       }
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 13px "Microsoft YaHei", "PingFang SC", sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(String(Math.round(ew * 100)), cx(ec), cy(er));
     }
+    ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
   } else if (!engineOn) {
     for (var j = 0; j < lastCands.length; j++) {
       var cell2 = lastCands[j][0], g = lastCands[j][1], w = lastCands[j][2], dd = lastCands[j][3];
@@ -1456,9 +1545,14 @@ btnEngine.addEventListener('click', function () {
   btnEngine.textContent = engineOn ? t('engineOff') : t('engineOn');
   engineBusy = false;
   if (engineOn) {
-    engineTop = engineTop10Fallback();
+    var fb = engineTop10Fallback();
+    engineTop = fb;
+    syncEngineAnim(fb);
+    startAnim();
     rapfiRequest();
   } else {
+    stopAnim();
+    engineAnim = [];
     engineTop = null;
     rapfiSeq++;   /* 丢弃进行中的引擎请求 */
   }

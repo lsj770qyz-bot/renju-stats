@@ -1,6 +1,5 @@
-/* Rapfi (GPL-3.0) WASM 引擎 Worker — 持续循环搜索 + 流式推送
-   按下按钮后：一直循环 YXNBEST（每轮 1500ms timeout），直到用户关闭按钮
-   每轮内部增量流式推送（~200ms 去抖） */
+/* Rapfi (GPL-3.0) WASM 引擎 Worker — 持续循环 + 流式
+   timeout 2500ms（每轮多 1s 深搜），循环间隔 50ms，200ms 去抖流式 */
 
 importScripts('rapfi-single-simd128.js');
 
@@ -10,6 +9,11 @@ var currentReq = null;
 var sess = null;
 var latestReqId = 0;
 var loopTimer = null;
+
+/* 每轮搜索 2.5s，持续循环直到用户关闭按钮 */
+var ROUND_TIMEOUT_MS = 2500;
+var LOOP_INTERVAL_MS = 50;
+var PROGRESS_DEBOUNCE_MS = 200;
 
 function send(type, data, extra) {
   var msg = { type: type };
@@ -48,7 +52,7 @@ function tryEmitProgress() {
   sess.round++;
   sess.latest = out;
   var now = Date.now();
-  if (now - sess.lastSendT >= 200) {
+  if (now - sess.lastSendT >= PROGRESS_DEBOUNCE_MS) {
     sess.lastSendT = now;
     send('progress', out, { id: currentReq.id, ms: now - sess.startT, round: sess.round });
   }
@@ -63,7 +67,7 @@ function runRound() {
   sess = { map: {}, round: sess ? sess.round : 0, startT: sess ? sess.startT : Date.now(),
            latest: sess ? sess.latest : null, lastSendT: 0, cur: null };
   
-  M.sendCommand('INFO timeout_turn 1500');
+  M.sendCommand('INFO timeout_turn ' + ROUND_TIMEOUT_MS);
   M.sendCommand('YXBOARD\n' + currentReq.boardText + 'DONE');
   M.sendCommand('YXNBEST ' + (currentReq.topN || 10));
   
@@ -74,8 +78,8 @@ function runRound() {
   }
   
   if (currentReq && currentReq.id === latestReqId) {
-    /* 100ms 间隔释放事件循环，让主线程消息能进来 */
-    loopTimer = setTimeout(runRound, 100);
+    /* 短间隔释放事件循环，让主线程消息能进来 */
+    loopTimer = setTimeout(runRound, LOOP_INTERVAL_MS);
   } else {
     sess = null;
     currentReq = null;
