@@ -12,9 +12,9 @@ var latestReqId = 0;
 var loopTimer = null;
 var collectTimer = null;  /* 延迟收集搜索结果的 timer */
 
-/* 每轮搜索 2.5s，让 Rapfi 真正跑够深度 */
-var ROUND_TIMEOUT_MS = 2500;
-var LOOP_INTERVAL_MS = 300;      /* 两轮之间的间隔，留时间让事件循环处理新请求 */
+/* 每轮搜索 0.5s（快速响应，持续流式推送） */
+var ROUND_TIMEOUT_MS = 500;
+var LOOP_INTERVAL_MS = 100;       /* 两轮之间的间隔，留时间让事件循环处理新请求 */
 var PROGRESS_DEBOUNCE_MS = 200;
 
 function send(type, data, extra) {
