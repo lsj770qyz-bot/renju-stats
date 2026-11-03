@@ -757,10 +757,7 @@ function rapfiStart() {
   }
   rapfiWorker.onmessage = function (ev) {
     var d = ev.data || {};
-    if (d.type === '_dbg') {
-      console.log('[RAPFI-DBG]', d.data);
-    } else if (d.type === 'status') {
-      console.log('[RAPFI] status=', d.data);
+    if (d.type === 'status') {
       if (d.data === 'ready') {
         rapfiState = 'ready';
         if (engineOn) rapfiRequest();
@@ -771,14 +768,12 @@ function rapfiStart() {
         draw();
       }
     } else if (d.type === 'progress') {
-      console.log('[RAPFI] progress round=', d.round, 'ms=', d.ms, 'len=', d.data ? d.data.length : 0, 'wr0=', d.data && d.data[0] ? (d.data[0][1]*100).toFixed(1)+'%' : '?');
       if (d.id !== rapfiSeq || !engineOn) return;
       if (d.data && d.data.length) {
         engineTop = d.data;
         draw();
       }
     } else if (d.type === 'result') {
-      console.log('[RAPFI] RESULT ms=', d.ms, 'rounds=', d.round, 'len=', d.data ? d.data.length : 0, 'error=', d.error);
       if (d.id !== rapfiSeq || !engineOn) return;
       engineBusy = false;
       if (d.data && d.data.length) engineTop = d.data;
@@ -819,7 +814,7 @@ function rapfiRequest() {
   for (var i = 0; i < state.moves.length; i++) moves.push([state.moves[i], (i % 2 === 0) ? 1 : 2]);
   rapfiSeq++;
   engineBusy = true;
-  rapfiWorker.postMessage({ type: 'analyze', id: rapfiSeq, moves: moves, topN: 10, timeMs: 2500 });
+  rapfiWorker.postMessage({ type: 'analyze', id: rapfiSeq, moves: moves, topN: 10, timeMs: 4000 });
   draw();   // 先把“引擎计算中…”标出来
 }
 
