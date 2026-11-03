@@ -761,6 +761,7 @@ function rapfiStart() {
   rapfiWorker.onmessage = function (ev) {
     var d = ev.data || {};
     if (d.type === 'status') {
+      console.log('[RAPFI] status:', d.data);
       if (d.data === 'ready') {
         rapfiState = 'ready';
         if (engineOn) rapfiRequest();
@@ -773,6 +774,7 @@ function rapfiStart() {
         startAnim();
       }
     } else if (d.type === 'progress') {
+      console.log('[RAPFI] progress id=' + d.id + ' seq=' + rapfiSeq + ' len=' + (d.data||[]).length);
       if (d.id !== rapfiSeq || !engineOn) return;
       if (d.data && d.data.length) {
         engineTop = d.data;
@@ -780,6 +782,7 @@ function rapfiStart() {
         startAnim();
       }
     } else if (d.type === 'result') {
+      console.log('[RAPFI] RESULT id=' + d.id + ' seq=' + rapfiSeq + ' len=' + (d.data||[]).length);
       if (d.id !== rapfiSeq || !engineOn) return;
       engineBusy = false;
       if (d.data && d.data.length) {
@@ -839,14 +842,18 @@ function syncEngineAnim(target) {
 /* candColor 的 lerp：取 rank0/1/2 的 RGB，按 rank 权重混合 */
 function candColorLerp(fromRank, toRank, t) {
   var palette = ['#2f7cf6', '#34a853', '#f1b82c', '#9aa0a6'];
-  var fr = palette[Math.max(0, Math.min(3, fromRank))];
-  var tr = palette[Math.max(0, Math.min(3, toRank))];
+  var fr = palette[Math.max(0, Math.min(3, fromRank|0))] || palette[0];
+  var tr = palette[Math.max(0, Math.min(3, toRank|0))] || palette[0];
+  if (!fr || !tr) return palette[0];
   if (fr === tr) return fr;
   var fh = fr.slice(1), th = tr.slice(1);
+  if (!fh || !th || fh.length !== 6) return palette[0];
   var r1 = parseInt(fh.substr(0, 2),16), g1 = parseInt(fh.substr(2,2),16), b1 = parseInt(fh.substr(4,2),16);
   var r2 = parseInt(th.substr(0, 2),16), g2 = parseInt(th.substr(2,2),16), b2 = parseInt(th.substr(4,2),16);
+  if (!isFinite(r1) || !isFinite(r2)) return palette[0];
   var r = Math.round(r1 + (r2-r1)*t), g = Math.round(g1 + (g2-g1)*t), b = Math.round(b1 + (b2-b1)*t);
-  return '#' + [r,g,b].map(function(x){var h=x.toString(16);return h.length<2?'0'+h:h}).join('');
+  r = Math.max(0, Math.min(255, r)); g = Math.max(0, Math.min(255, g)); b = Math.max(0, Math.min(255, b));
+  return '#' + [r,g,b].map(function(x){var h=(x|0).toString(16);return h.length<2?'0'+h:h}).join('');
 }
 
 /* rAF 动画循环 */
