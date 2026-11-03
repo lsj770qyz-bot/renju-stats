@@ -757,7 +757,10 @@ function rapfiStart() {
   }
   rapfiWorker.onmessage = function (ev) {
     var d = ev.data || {};
-    if (d.type === 'status') {
+    if (d.type === '_dbg') {
+      console.log('[RAPFI-DBG]', d.data);
+    } else if (d.type === 'status') {
+      console.log('[RAPFI] status=', d.data);
       if (d.data === 'ready') {
         rapfiState = 'ready';
         if (engineOn) rapfiRequest();
@@ -768,14 +771,14 @@ function rapfiStart() {
         draw();
       }
     } else if (d.type === 'progress') {
-      /* 流式推送：每一轮完成立即刷新 → 圆圈数字边算边收敛 */
+      console.log('[RAPFI] progress round=', d.round, 'ms=', d.ms, 'len=', d.data ? d.data.length : 0, 'wr0=', d.data && d.data[0] ? (d.data[0][1]*100).toFixed(1)+'%' : '?');
       if (d.id !== rapfiSeq || !engineOn) return;
       if (d.data && d.data.length) {
         engineTop = d.data;
-        /* 用 draw() 节流：canvas 不会 60fps 但人眼能看到连续变化 */
         draw();
       }
     } else if (d.type === 'result') {
+      console.log('[RAPFI] RESULT ms=', d.ms, 'rounds=', d.round, 'len=', d.data ? d.data.length : 0, 'error=', d.error);
       if (d.id !== rapfiSeq || !engineOn) return;
       engineBusy = false;
       if (d.data && d.data.length) engineTop = d.data;
