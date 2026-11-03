@@ -814,7 +814,7 @@ function rapfiRequest() {
   for (var i = 0; i < state.moves.length; i++) moves.push([state.moves[i], (i % 2 === 0) ? 1 : 2]);
   rapfiSeq++;
   engineBusy = true;
-  rapfiWorker.postMessage({ type: 'analyze', id: rapfiSeq, moves: moves, topN: 10, timeMs: 4000 });
+  rapfiWorker.postMessage({ type: 'analyze', id: rapfiSeq, moves: moves, topN: 10, timeMs: 2000 });
   draw();   // 先把“引擎计算中…”标出来
 }
 

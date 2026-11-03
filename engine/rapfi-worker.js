@@ -1,6 +1,7 @@
-/* Rapfi (GPL-3.0) WASM 引擎 Worker。
-   流式推送：每轮完整 idx=0..9 后立即 postMessage('progress') 给主线程，
-   同时降低触发门槛确保首轮就能出结果。 */
+/* Rapfi (GPL-3.0) WASM 引擎 Worker — 增量流式推送
+   优化：不再存 sess.log / 不再每次全量扫描重建 blocks，
+   而是在 onReceiveStdout 里直接维护 sess.map[idx] = {wr, mv}。
+   每条 BESTLINE 触发时 O(1) 构建 out 数组并 postMessage。 */
 
 importScripts('rapfi-single-simd128.js');
 
@@ -25,32 +26,13 @@ function cellOfCoord(str) {
   return y * 15 + x;
 }
 
-/* 从 sess.log 解析最新完整 Top-N：从最后一个 idx=0 起，取后面所有有 wr+mv 的 idx */
-function parseLatest() {
-  var log = sess.log;
-  var blocks = [];
-  for (var i = 0; i < log.length; i++) {
-    var l = log[i];
-    if (l.indexOf('INFO PV ') === 0 && l !== 'INFO PV DONE') {
-      blocks.push({ idx: parseInt(l.slice(8), 10), wr: null, mv: null });
-    } else if (blocks.length) {
-      var b = blocks[blocks.length - 1];
-      if (l.indexOf('INFO WINRATE ') === 0) b.wr = parseFloat(l.slice(12));
-      else if (l.indexOf('INFO BESTLINE ') === 0) b.mv = l.slice(14).trim().split(' ')[0];
-    }
-  }
-  var start = -1;
-  for (var j = blocks.length - 1; j >= 0; j--) {
-    if (blocks[j].idx === 0) { start = j; break; }
-  }
-  if (start < 0) return null;
-  var round = blocks.slice(start);
-  var map = {};
-  for (var k = 0; k < round.length; k++) map[round[k].idx] = round[k];
+/* 根据 sess.map 构建最新 Top-N 输出 —— O(1) */
+function buildOut() {
+  var map = sess.map;
   var out = [];
   for (var idx = 0; idx <= 9; idx++) {
     var b = map[idx];
-    if (b && b.wr != null && isFinite(b.wr) && b.mv) {
+    if (b && b.wr != null && b.mv) {
       var c = cellOfCoord(b.mv);
       if (c >= 0) out.push([c, Math.max(0, Math.min(1, b.wr))]);
     }
@@ -60,14 +42,15 @@ function parseLatest() {
 
 function tryEmitProgress() {
   if (!sess || !currentReq) return;
-  var out = parseLatest();
+  var out = buildOut();
   if (!out) return;
   sess.round++;
   sess.latest = out;
-  /* 去抖：每 250ms 最多推一次 */
-  if (!sess.lastSendT || Date.now() - sess.lastSendT > 250) {
-    sess.lastSendT = Date.now();
-    send('progress', out, { id: currentReq.id, ms: sess.lastSendT - sess.startT, round: sess.round });
+  /* 去抖：每 200ms 最多推一次（快但不卡） */
+  var now = Date.now();
+  if (now - sess.lastSendT >= 200) {
+    sess.lastSendT = now;
+    send('progress', out, { id: currentReq.id, ms: now - sess.startT, round: sess.round });
   }
 }
 
@@ -76,10 +59,10 @@ self.onmessage = function (e) {
   if (d.type === 'analyze') {
     if (!ready) { send('result', [], { id: d.id, ms: 0, error: 'not-ready' }); return; }
     currentReq = d;
-    sess = { log: [], round: 0, startT: Date.now(), latest: null, lastSendT: 0 };
+    sess = { map: {}, round: 0, startT: Date.now(), latest: null, lastSendT: 0 };
 
-    /* 时间拉长到 4s（浏览器 WASM 比 Node 慢） */
-    var t = Math.max(3000, Math.min(6000, d.timeMs || 4000));
+    /* timeout 默认 2s，用户嫌慢就设 2000ms */
+    var t = Math.max(1200, Math.min(3000, d.timeMs || 2000));
     var lines = [];
     var mv = d.moves || [];
     for (var i = 0; i < mv.length; i++) {
@@ -91,11 +74,10 @@ self.onmessage = function (e) {
     M.sendCommand('INFO show_detail 2');
     M.sendCommand('INFO timeout_turn ' + t);
     M.sendCommand('YXBOARD\n' + (lines.length ? lines.join('\n') + '\n' : '') + 'DONE');
-    var n = Math.max(4, Math.min(20, d.topN || 12));
-    /* 发 YXNBEST → 引擎同步搜索 */
+    var n = Math.max(4, Math.min(20, d.topN || 10));
     M.sendCommand('YXNBEST ' + n);
-    /* sendCommand 返回时搜索已结束，发最终结果 */
-    var final = sess.latest || parseLatest();
+    /* sendCommand 返回 → 发最终 result */
+    var final = sess.latest || buildOut();
     send('result', final || [], { id: d.id, ms: Date.now() - sess.startT, round: sess.round });
     sess = null;
     currentReq = null;
@@ -104,18 +86,26 @@ self.onmessage = function (e) {
   }
 };
 
-/* ---------- 启动 + 实时 stdout 回调 ---------- */
+/* ---------- 启动 + 增量 stdout 回调 ---------- */
 Rapfi({
   locateFile: function (p) { return p; },
   onReceiveStdout: function (l) {
     if (!sess) return;
-    sess.log.push(l);
-    /* INFO BESTLINE 一定紧随 INFO WINRATE（见 Rapfi 源码输出顺序），
-       此时 idx=0..N 的 wr 和 mv 都已完整，用 BESTLINE 触发最稳妥 */
-    if (l.indexOf('INFO BESTLINE ') === 0) {
-      tryEmitProgress();
-    } else if (l === 'INFO PV DONE') {
-      tryEmitProgress();
+    /* 实时增量维护 sess.map，O(1) 操作 */
+    if (l.indexOf('INFO PV ') === 0 && l !== 'INFO PV DONE') {
+      var idx = parseInt(l.slice(8), 10);
+      sess.cur = idx;
+    } else if (sess.cur != null) {
+      var b = sess.map[sess.cur] = sess.map[sess.cur] || {};
+      if (l.indexOf('INFO WINRATE ') === 0) {
+        b.wr = parseFloat(l.slice(12));
+      } else if (l.indexOf('INFO BESTLINE ') === 0) {
+        b.mv = l.slice(14).trim().split(' ')[0];
+        /* BESTLINE 到了 → 这个 idx 完整了 → 立即尝试 emitProgress */
+        tryEmitProgress();
+      }
+      /* PV DONE 不单独触发，因为紧随 BESTLINE 之后 */
+      if (l === 'INFO PV DONE') sess.cur = null;
     }
   },
   onReceiveStderr: function () {},
