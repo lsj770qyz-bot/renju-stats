@@ -1,5 +1,5 @@
 /* Rapfi (GPL-3.0) WASM 引擎 Worker — 持续循环 + 快速响应
-   timeout 1200ms（平衡深度和响应），循环间隔 0ms（让新 analyze 立即被处理） */
+   timeout 2000ms，循环间隔 0ms（让新 analyze 优先） */
 
 importScripts('rapfi-single-simd128.js');
 
@@ -11,8 +11,8 @@ var latestReqId = 0;
 var loopTimer = null;
 var busy = false;  /* 当前 runRound 正在阻塞 */
 
-/* 每轮搜索 1.2s（平衡深度与响应速度：落子后最快 1.2s 出结果） */
-var ROUND_TIMEOUT_MS = 1200;
+/* 每轮搜索 2s（平衡深度与响应速度） */
+var ROUND_TIMEOUT_MS = 2000;
 var LOOP_INTERVAL_MS = 0;        /* 0ms：让事件循环先排空 onmessage，再循环 */
 var PROGRESS_DEBOUNCE_MS = 180;  /* 去抖间隔 */
 
@@ -63,11 +63,13 @@ function tryEmitProgress() {
 function runRound() {
   busy = true;
   if (!currentReq || currentReq.id !== latestReqId) {
+    console.log('[RAPFI] runRound SKIP current=' + (currentReq?currentReq.id:'null') + ' latest=' + latestReqId);
     sess = null; busy = false;
     return; /* 请求已取消 */
   }
   sess = { map: {}, round: sess ? sess.round : 0, startT: sess ? sess.startT : Date.now(),
            latest: sess ? sess.latest : null, lastSendT: 0, cur: null };
+  console.log('[RAPFI] runRound START id=' + currentReq.id + ' boardLen=' + currentReq.boardText.length);
   
   /* 每轮都重新建立局面 + 设置参数（安全，Rapfi 支持重复发送） */
   M.sendCommand('INFO rule 4');
@@ -80,6 +82,7 @@ function runRound() {
   busy = false;
   /* 本轮结束，发 final result */
   var final = buildOut();
+  console.log('[RAPFI] runRound END id=' + currentReq.id + ' len=' + (final?final.length:0));
   if (currentReq && currentReq.id === latestReqId) {
     send('result', final || sess.latest || [], { id: currentReq.id, ms: Date.now() - sess.startT, round: sess.round });
   }
@@ -100,10 +103,11 @@ self.onmessage = function (e) {
   var d = e.data || {};
   if (d.type === 'analyze') {
     latestReqId = d.id;  /* 标记新请求，旧的自动作废 */
+    console.log('[RAPFI] onmessage analyze id=' + d.id + ' current=' + (currentReq ? currentReq.id : 'null'));
     if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }
     if (!ready) { send('result', [], { id: d.id, ms: 0, error: 'not-ready' }); return; }
     
-    /* 序列化棋盘 —— 只做数据准备，不 sendCommand（避免阻塞 onmessage） */
+    /* 序列化棋盘 —— 快速准备 */
     var lines = [];
     var mv = d.moves || [];
     for (var i = 0; i < mv.length; i++) {
@@ -113,8 +117,10 @@ self.onmessage = function (e) {
     d.boardText = lines.length ? lines.join('\n') + '\n' : '';
     
     currentReq = d;
-    /* setTimeout 0 让 onmessage 先返回（释放 Worker 事件循环），再跑第一轮 */
-    setTimeout(runRound, 0);
+    sess = null;  /* 清掉旧 session */
+    
+    /* 直接同步跑第一轮（和旧版一样稳定），之后 runRound 内部会 setTimeout 循环 */
+    runRound();
     
   } else if (d.type === 'ping') {
     send('pong', ready);
@@ -122,10 +128,13 @@ self.onmessage = function (e) {
 };
 
 /* ---------- 启动 + 增量 stdout ---------- */
+var _dbgCount = 0;
 Rapfi({
   locateFile: function (p) { return p; },
   onReceiveStdout: function (l) {
     if (!sess) return;
+    /* 采样：每 10 条打印 1 条，避免刷屏 */
+    if (_dbgCount++ % 20 === 0) console.log('[RAPFI-DBG] stdout:', l.slice(0, 80));
     if (currentReq && currentReq.id !== latestReqId) return;
     if (l.indexOf('INFO PV ') === 0 && l !== 'INFO PV DONE') {
       sess.cur = parseInt(l.slice(8), 10);
@@ -136,9 +145,9 @@ Rapfi({
       if (l === 'INFO PV DONE') sess.cur = null;
     }
   },
-  onReceiveStderr: function () {},
-  print: function () {},
-  printErr: function () {}
+  onReceiveStderr: function (l) { if (l) console.log('[RAPFI-ERR]', l.slice(0, 120)); },
+  print: function (l) { if (l) console.log('[RAPFI-PRINT]', l.slice(0, 120)); },
+  printErr: function (l) { if (l) console.log('[RAPFI-PRINTERR]', l.slice(0, 120)); }
 }).then(function (mod) {
   M = mod;
   M.sendCommand('INFO rule 4');
