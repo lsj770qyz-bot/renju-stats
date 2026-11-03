@@ -767,10 +767,18 @@ function rapfiStart() {
         engineTop = engineTop10Fallback();
         draw();
       }
+    } else if (d.type === 'progress') {
+      /* 流式推送：每一轮完成立即刷新 → 圆圈数字边算边收敛 */
+      if (d.id !== rapfiSeq || !engineOn) return;
+      if (d.data && d.data.length) {
+        engineTop = d.data;
+        /* 用 draw() 节流：canvas 不会 60fps 但人眼能看到连续变化 */
+        draw();
+      }
     } else if (d.type === 'result') {
-      if (d.id !== rapfiSeq || !engineOn) return;   // 过期/失效结果丢弃
+      if (d.id !== rapfiSeq || !engineOn) return;
       engineBusy = false;
-      engineTop = d.data && d.data.length ? d.data : engineTop10Fallback();
+      if (d.data && d.data.length) engineTop = d.data;
       draw();
     }
   };
@@ -808,7 +816,7 @@ function rapfiRequest() {
   for (var i = 0; i < state.moves.length; i++) moves.push([state.moves[i], (i % 2 === 0) ? 1 : 2]);
   rapfiSeq++;
   engineBusy = true;
-  rapfiWorker.postMessage({ type: 'analyze', id: rapfiSeq, moves: moves, topN: 10, timeMs: 320 });
+  rapfiWorker.postMessage({ type: 'analyze', id: rapfiSeq, moves: moves, topN: 10, timeMs: 2500 });
   draw();   // 先把“引擎计算中…”标出来
 }
 
