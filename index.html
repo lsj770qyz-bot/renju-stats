@@ -103,6 +103,9 @@
   .cand li:hover { background: #fff6dd; }
   .cand .rank { width: 18px; flex: 0 0 18px; text-align: center; font-weight: 700; color: #fff; border-radius: 6px; font-size: 11px; line-height: 18px; }
   .cand .rank.b { background: var(--blue); }
+  .cand .pieceTag { width: 14px; height: 14px; border-radius: 50%; flex: 0 0 14px; }
+  .cand .pieceTag.k { background: #111; box-shadow: inset 0 -1px 0 rgba(255,255,255,.15); }
+  .cand .pieceTag.w { background: #fff; border: 1px solid #aaa; box-shadow: inset 0 -1px 0 rgba(0,0,0,.08); }
   .cand .rank.g { background: var(--green); }
   .cand .rank.y { background: var(--gray); }
   .cand .coord { font-weight: 700; color: var(--brown); width: 34px; flex: 0 0 34px; }
@@ -715,7 +718,7 @@ var I18N = {
     statGames: ' 局 · ', statNone: '无对局',
     oppIn1: '对等级分 ', oppIn2: ' 的对手：', oppIn3: ' 及以上', oppOut: '对', oppOut2: '区间外', oppOut3: '的对手：',
     oppNote: '等级分采用 ljrenju 2026-10 期（现役值）；时间范围跟随上方筛选',
-    ratingUnit: ' 分'
+    ratingUnit: ' 分', pAs: '该选手', pSide: '方落子'
   },
   en: {
     loading: 'Loading 165,849 games…',
@@ -743,7 +746,7 @@ var I18N = {
     statGames: ' games · ', statNone: 'No games',
     oppIn1: 'Vs opponents rated ', oppIn2: ':', oppIn3: '+', oppOut: 'Vs opponents ', oppOut2: 'outside the band', oppOut3: ':',
     oppNote: 'Ratings: ljrenju 2026-10 list (current values); period follows the filter above',
-    ratingUnit: ''
+    ratingUnit: '', pAs: 'player as ', pSide: ' side'
   },
   ja: {
     loading: '165,849 局の対局データを読み込み中…',
@@ -771,7 +774,7 @@ var I18N = {
     statGames: ' 局 · ', statNone: '対局なし',
     oppIn1: 'レート ', oppIn2: ' の相手：', oppIn3: ' 以上', oppOut: '', oppOut2: '区間外', oppOut3: 'の相手：',
     oppNote: 'レートは ljrenju 2026-10 期（現行値）；期間は上の絞込に連動',
-    ratingUnit: ''
+    ratingUnit: '', pAs: '選手は', pSide: '番で着手'
   },
   ko: {
     loading: '165,849국 대국 데이터 로딩 중…',
@@ -799,7 +802,7 @@ var I18N = {
     statGames: ' 국 · ', statNone: '대국 없음',
     oppIn1: '레이팅 ', oppIn2: ' 상대:', oppIn3: ' 이상', oppOut: '', oppOut2: '구간 밖', oppOut3: ' 상대:',
     oppNote: '레이팅은 ljrenju 2026-10기(현행값); 기간은 위 필터와 연동',
-    ratingUnit: ''
+    ratingUnit: '', pAs: '선수는 ', pSide: '측으로 착수'
   }
 };
 var lang = 'zh';
@@ -973,9 +976,13 @@ function refresh() {
   }
 
   var nextBlack = state.moves.length % 2 === 0;
+  var nextTxt = nextBlack ? t('black') : t('white');
   elCurInfo.textContent = state.moves.length === 0
     ? t('opening')
-    : t('moveN1') + (state.moves.length + 1) + t('moveN2') + (nextBlack ? t('black') : t('white')) + t('moveN3');
+    : t('moveN1') + (state.moves.length + 1) + t('moveN2') + nextTxt + t('moveN3');
+  if (state.dataset === 'player' && currentPlayer) {
+    elCurInfo.textContent += '（' + t('pAs') + nextTxt + t('pSide') + '）';
+  }
 
   if (state.moves.length === 0) {
     var rs = rootStats();
@@ -1001,14 +1008,18 @@ function refresh() {
     elCandList.innerHTML = '<li class="empty" style="cursor:default">' + t('noBranch') + '</li>';
     return;
   }
+  var pieceCls = nextBlack ? 'k' : 'w';
+  var isPlayerScope = state.dataset === 'player' && currentPlayer;
+  var sideLabel = isPlayerScope ? t('pAs') + nextTxt + t('pSide') + ' · ' : '';
   var html = '';
   for (var j = 0; j < lastCands.length; j++) {
     var cell = lastCands[j][0], g = lastCands[j][1], w = lastCands[j][2], d = lastCands[j][3];
     var cls = j === 0 ? 'b' : (j <= 9 ? 'g' : 'y');
     html += '<li data-cell="' + cell + '">' +
       '<span class="rank ' + cls + '">' + (j + 1) + '</span>' +
+      '<span class="pieceTag ' + pieceCls + '" title="' + nextTxt + '"></span>' +
       '<span class="coord">' + coordName(cell) + '</span>' +
-      '<span class="bar">' + g.toLocaleString() + t('gamesUnit') + ' · ' + t('scoreRate') + ' ' + fmtPct((w + d * 0.5) / g) +
+      '<span class="bar">' + sideLabel + g.toLocaleString() + t('gamesUnit') + ' · ' + t('scoreRate') + ' ' + fmtPct((w + d * 0.5) / g) +
       ' · ' + t('winRate') + ' ' + fmtPct(w / g) + '</span></li>';
   }
   elCandList.innerHTML = html;
