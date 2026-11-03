@@ -903,6 +903,7 @@ function rapfiRequest() {
 }
 
 function draw() {
+  ctx.save();  /* 保护 canvas 状态：任何修改都不会泄漏 */
   var size = canvas.width;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, size, size);
@@ -1072,6 +1073,7 @@ function draw() {
     ctx.fillStyle = '#4a3d20';
     ctx.fillText(engineBusy ? t('engineBusy') : t('engineMark'), cx(0) + 15, markY);
   }
+  ctx.restore();  /* 恢复 canvas 状态 */
 }
 
 /* ============================================================
