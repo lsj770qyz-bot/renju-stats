@@ -1,5 +1,5 @@
-/* Rapfi (GPL-3.0) WASM 引擎 Worker — 持续循环 + 流式
-   timeout 2500ms（每轮多 1s 深搜），循环间隔 50ms，200ms 去抖流式 */
+/* Rapfi (GPL-3.0) WASM 引擎 Worker — 持续循环 + 快速响应
+   timeout 1200ms（平衡深度和响应），循环间隔 0ms（让新 analyze 立即被处理） */
 
 importScripts('rapfi-single-simd128.js');
 
@@ -9,11 +9,12 @@ var currentReq = null;
 var sess = null;
 var latestReqId = 0;
 var loopTimer = null;
+var busy = false;  /* 当前 runRound 正在阻塞 */
 
-/* 每轮搜索 2.5s，持续循环直到用户关闭按钮 */
-var ROUND_TIMEOUT_MS = 2500;
-var LOOP_INTERVAL_MS = 50;
-var PROGRESS_DEBOUNCE_MS = 200;
+/* 每轮搜索 1.2s（平衡深度与响应速度：落子后最快 1.2s 出结果） */
+var ROUND_TIMEOUT_MS = 1200;
+var LOOP_INTERVAL_MS = 0;        /* 0ms：让事件循环先排空 onmessage，再循环 */
+var PROGRESS_DEBOUNCE_MS = 180;  /* 去抖间隔 */
 
 function send(type, data, extra) {
   var msg = { type: type };
@@ -58,10 +59,11 @@ function tryEmitProgress() {
   }
 }
 
-/* 跑一轮 YXNBEST（同步阻塞 ~2.5s），跑完 setTimeout 再跑下一轮 */
+/* 跑一轮 YXNBEST（同步阻塞 ~1.2s），跑完 loopInterval 后再检查是否继续 */
 function runRound() {
+  busy = true;
   if (!currentReq || currentReq.id !== latestReqId) {
-    sess = null;
+    sess = null; busy = false;
     return; /* 请求已取消 */
   }
   sess = { map: {}, round: sess ? sess.round : 0, startT: sess ? sess.startT : Date.now(),
@@ -75,19 +77,23 @@ function runRound() {
   M.sendCommand('YXBOARD\n' + currentReq.boardText + 'DONE');
   M.sendCommand('YXNBEST ' + (currentReq.topN || 10));
   
-  /* 本轮结束，发 final result，然后循环 */
+  busy = false;
+  /* 本轮结束，发 final result */
   var final = buildOut();
   if (currentReq && currentReq.id === latestReqId) {
     send('result', final || sess.latest || [], { id: currentReq.id, ms: Date.now() - sess.startT, round: sess.round });
   }
   
-  if (currentReq && currentReq.id === latestReqId) {
-    /* 短间隔释放事件循环，让主线程消息能进来 */
-    loopTimer = setTimeout(runRound, LOOP_INTERVAL_MS);
-  } else {
-    sess = null;
-    currentReq = null;
-  }
+  /* 关键：先让事件循环跑（0ms），让新 onmessage analyze 被处理 */
+  /* 如果 latestReqId 没变 → 继续循环；变了 → 新的 onmessage 会接管 */
+  loopTimer = setTimeout(function () {
+    loopTimer = null;
+    if (!currentReq || currentReq.id !== latestReqId) {
+      sess = null; currentReq = null;
+      return;
+    }
+    runRound();  /* 继续下一轮 */
+  }, LOOP_INTERVAL_MS);
 }
 
 self.onmessage = function (e) {
