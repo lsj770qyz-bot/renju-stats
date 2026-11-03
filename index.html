@@ -304,7 +304,7 @@ function resizeCanvas() {
   var px = Math.max(1, Math.round(rect.width * dpr));
   canvas.width = px;
   canvas.height = px;
-  draw();
+  requestDraw();
 }
 function cx(col) { return PAD + col * CELL; }
 function cy(row) { return PAD + row * CELL; }
@@ -745,6 +745,7 @@ function buildBoard() {
 var rapfiWorker = null;
 var rapfiState = 'idle';   // idle / loading / ready / failed
 var rapfiSeq = 0;          // 请求序号，用于丢弃过期结果
+var _lastProgressSyncT = 0; /* progress 主线程去抖：至少间隔 400ms */
 
 function rapfiStart() {
   if (rapfiState === 'loading' || rapfiState === 'ready' || rapfiState === 'failed') return;
@@ -755,7 +756,7 @@ function rapfiStart() {
     rapfiState = 'failed';
     engineBusy = false;
     engineTop = engineTop10Fallback();   /* 用内置估算也返回独立的 Top-10 */
-    draw();
+    requestDraw();
     return;
   }
   rapfiWorker.onmessage = function (ev) {
@@ -778,8 +779,12 @@ function rapfiStart() {
       if (d.id !== rapfiSeq || !engineOn) return;
       if (d.data && d.data.length) {
         engineTop = d.data;
-        syncEngineAnim(d.data);
-        startAnim();
+        var now = Date.now();
+        if (now - _lastProgressSyncT >= 400) {
+          _lastProgressSyncT = now;
+          syncEngineAnim(d.data);
+          startAnim();
+        }
       }
     } else if (d.type === 'result') {
       console.log('[RAPFI] RESULT id=' + d.id + ' seq=' + rapfiSeq + ' len=' + (d.data||[]).length);
@@ -787,6 +792,7 @@ function rapfiStart() {
       engineBusy = false;
       if (d.data && d.data.length) {
         engineTop = d.data;
+        _lastProgressSyncT = Date.now();
         syncEngineAnim(d.data);
         startAnim();
       }
@@ -815,10 +821,33 @@ function syncEngineAnim(target) {
   for (var i = 0; i < target.length; i++) newMap[target[i][0]] = i;
   var newCells = {}; for (var k in newMap) newCells[k] = true;
 
+  /* 统计新旧差异，决定是否跳过动画 */
+  var oldCellSet = {};
+  for (var j = 0; j < engineAnim.length; j++) oldCellSet[engineAnim[j].cell] = true;
+  var overlap = 0, oldCount = engineAnim.length;
+  for (var c in newCells) if (oldCellSet[c]) overlap++;
+  /* 低胜率判定：target 里所有 wr < 0.05 视为结果不稳定 */
+  var lowWr = true;
+  for (var i2 = 0; i2 < target.length; i2++) if (target[i2][1] >= 0.05) { lowWr = false; break; }
+  var tooMuchChange = oldCount > 0 && (overlap / oldCount < 0.6);
+
+  if (tooMuchChange || lowWr) {
+    /* 差异太大或胜率极低 → 直接替换，不做淡出淡入（防闪屏） */
+    engineAnim = [];
+    for (var i3 = 0; i3 < target.length; i3++) {
+      engineAnim.push({
+        cell: target[i3][0], wr: target[i3][1], targetWr: target[i3][1],
+        alpha: 1, targetAlpha: 1,
+        rank: i3, targetRank: i3
+      });
+    }
+    return;
+  }
+
   /* 更新已有条目 + 标记消失 */
   var oldMap = {};
-  for (var j = 0; j < engineAnim.length; j++) {
-    var a = engineAnim[j]; oldMap[a.cell] = j;
+  for (var j2 = 0; j2 < engineAnim.length; j2++) {
+    var a = engineAnim[j2]; oldMap[a.cell] = j2;
     if (newCells[a.cell]) {
       var newRank = newMap[a.cell];
       a.targetWr = target[newRank][1];
@@ -829,10 +858,10 @@ function syncEngineAnim(target) {
     }
   }
   /* 新 cell → 淡入 */
-  for (var c in newCells) if (!oldMap[c]) {
-    var newR = newMap[c];
+  for (var c2 in newCells) if (!oldMap[c2]) {
+    var newR = newMap[c2];
     engineAnim.push({
-      cell: +c, wr: target[newR][1], targetWr: target[newR][1],
+      cell: +c2, wr: target[newR][1], targetWr: target[newR][1],
       alpha: 0, targetAlpha: 1,
       rank: newR, targetRank: newR
     });
@@ -906,7 +935,18 @@ function rapfiRequest() {
   rapfiSeq++;
   engineBusy = true;
   rapfiWorker.postMessage({ type: 'analyze', id: rapfiSeq, moves: moves, topN: 10, timeMs: 2500 });
-  draw();   // 先把“引擎计算中…”标出来
+  requestDraw();   // 先把"引擎计算中…"标出来
+}
+
+/* rAF 节流：不管多少地方请求 draw，一帧只真正画一次 —— 防闪屏 */
+var _drawPending = false;
+function requestDraw() {
+  if (_drawPending) return;
+  _drawPending = true;
+  requestAnimationFrame(function () {
+    _drawPending = false;
+    draw();
+  });
 }
 
 function draw() {
@@ -971,7 +1011,16 @@ function draw() {
   }
 
   /* 候选圆圈：引擎模式 → engineAnim（lerp 动画状态，平滑过渡）；
-   *          普通模式 → 数据库统计出来的候选点 + 得分率 */
+   *          普通模式 → 数据库统计出来的候选点 + 得分率
+   * 保护：engineAnim 被意外清空但 engineTop 还有数据 → 临时重建 engineAnim 防空白 */
+  if (engineOn && !engineAnim.length && engineTop && engineTop.length) {
+    for (var __k = 0; __k < engineTop.length; __k++) {
+      engineAnim.push({
+        cell: engineTop[__k][0], wr: engineTop[__k][1], targetWr: engineTop[__k][1],
+        alpha: 1, targetAlpha: 1, rank: __k, targetRank: __k
+      });
+    }
+  }
   if (engineOn && engineAnim.length) {
     for (var k = 0; k < engineAnim.length; k++) {
       var a = engineAnim[k];
@@ -1363,7 +1412,7 @@ function refresh() {
     syncEngineAnim(null);
     stopAnim();
     document.getElementById('endGames').innerHTML = '';
-    draw();
+    requestDraw();
     return;
   }
 
@@ -1378,7 +1427,7 @@ function refresh() {
     startAnim();
     rapfiRequest();                      /* 异步用 Rapfi 覆盖 */
   }
-  draw();
+  requestDraw();
 
   if (state.dataset === 'all') {
     elDsInfo.textContent = t('dsAll') + RAW.counts.all.toLocaleString() + t('dsGames');
@@ -1531,7 +1580,7 @@ canvas.addEventListener('contextmenu', function (ev) {
 canvas.addEventListener('pointermove', function (ev) {
   var cell = eventToCell(ev);
   state.hoverCell = cell;
-  draw();
+  requestDraw();
   var rec = cell === null ? null : isCandidate(cell);
   if (rec) {
     var row = Math.floor(cell / 15), col = cell % 15;
@@ -1548,7 +1597,7 @@ canvas.addEventListener('pointermove', function (ev) {
 canvas.addEventListener('pointerleave', function () {
   state.hoverCell = null;
   tip.hidden = true;
-  draw();
+  requestDraw();
 });
 
 document.getElementById('btnBack').addEventListener('click', undo);
@@ -1571,7 +1620,7 @@ btnEngine.addEventListener('click', function () {
     engineTop = null;
     rapfiSeq++;   /* 丢弃进行中的引擎请求 */
   }
-  draw();
+  requestDraw();
 });
 document.getElementById('btnReset').addEventListener('click', function () {
   state.moves = [];
