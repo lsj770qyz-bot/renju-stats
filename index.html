@@ -614,6 +614,7 @@ function candColor(rank) {
 
 var lastCands = [];
 var endedGames = [];   /* 在当前局面正好走完全部棋谱的对局编号（去重） */
+var branchGames = [];  /* 当前分支剩下的对局编号（去重，按出现顺序） */
 
 /* ============================================================
  *  胜率显示：开源连珠引擎 Rapfi（WASM，懒加载）为正式口径，
@@ -965,20 +966,22 @@ function drawMiniStone(x, y, r, isBlack) {
   }
 }
 
-/* 棋盘上方：对局全部摆完时，显示这一局的黑白双方（黑方在前、白方在后）
+/* 棋盘上方：显示这一局的黑白双方（黑方在前、白方在后）
+ * 触发条件：当前分支只剩这一局（提前显示），或棋谱已全部摆完
  * 只在 Top100 与选手个人页显示；全部对局页不显示 */
 function drawEndGameTitle() {
-  if (!endedGames.length) return;
   if (state.dataset === 'all') return;
+  var list = endedGames.length ? endedGames : (branchGames.length === 1 ? branchGames : null);
+  if (!list || !list.length) return;
   /* 优先选用两边选手名都齐全的对局，避免显示 #pid */
-  var g = endedGames[0], i;
-  for (i = 0; i < endedGames.length; i++) {
-    var gi = endedGames[i];
+  var g = list[0], i;
+  for (i = 0; i < list.length; i++) {
+    var gi = list[i];
     if (RAW.pname[String(BLACK[gi])] && RAW.pname[String(WHITE[gi])]) { g = gi; break; }
   }
   var bName = playerLabel(BLACK[g]);
   var wName = playerLabel(WHITE[g]);
-  var more = endedGames.length > 1 ? t('endMore1') + endedGames.length + t('endMore2') : '';
+  var more = list.length > 1 ? t('endMore1') + list.length + t('endMore2') : '';
   var sep = '  vs  ';
   var maxW = cx(N - 1) - cx(0);
   var fontPx = 15, fontStr = '', stoneR = 0, wB = 0, wW = 0, wSep = 0, wMore = 0, total = 0;
@@ -1486,6 +1489,7 @@ function refresh() {
     elDsInfo.textContent = t('picking');
     lastCands = [];
     endedGames = [];
+    branchGames = [];
     engineTop = null;
     syncEngineAnim(null);
     stopAnim();
@@ -1495,13 +1499,15 @@ function refresh() {
   }
 
   lastCands = candidates();
-  /* 统计在当前局面正好走完全部棋谱的对局（matchList 含 8 个对称条目，按对局号去重） */
+  /* 统计当前分支：去重后的对局列表 branchGames，以及已走完全部棋谱的对局 endedGames */
   endedGames = [];
+  branchGames = [];
   var seenEnd = {};
   for (var ei = 0; ei < matchList.length; ei++) {
     var eg = matchList[ei] >> 3;
     if (seenEnd[eg]) continue;
     seenEnd[eg] = 1;
+    branchGames.push(eg);
     if (LENS[eg] === state.moves.length) endedGames.push(eg);
   }
   engineTop = null;           /* 每次刷新先清，等引擎异步回填 */
