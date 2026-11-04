@@ -599,10 +599,16 @@ function undo() {
 
 var redoStack = [];
 function redo() {
-  if (redoStack.length === 0) return;
-  descend(redoStack.pop());
-  playStoneSound();
-  refresh();
+  if (redoStack.length > 0) {
+    descend(redoStack.pop());
+    playStoneSound();
+    refresh();
+    return;
+  }
+  /* 下一手没有分支（只剩唯一候选点）：前进一手直接走到该点 */
+  if (!engineOn && lastCands.length === 1) {
+    playCell(lastCands[0][0]);
+  }
 }
 
 function fmtPct(x) { return (x * 100).toFixed(1) + '%'; }
@@ -1145,8 +1151,9 @@ function draw() {
   /* 对局全部摆完：棋盘上方显示这一局的黑白双方 */
   drawEndGameTitle();
 
-  /* 选手个人页：棋盘正上方显示选手执黑/执白的总盘数（走到此局面的总数，立体棋子） */
-  if (state.dataset === 'player' && currentPlayer && lastCands.length) {
+  /* 选手个人页：棋盘正上方显示选手执黑/执白的总盘数（走到此局面的总数，立体棋子）
+   * 分支只剩一场对局时不必再显示（上方标题已标出黑白双方） */
+  if (state.dataset === 'player' && currentPlayer && lastCands.length && branchGames.length > 1) {
     var sB = lastCands.bw0 || 0;
     var sW = lastCands.ww0 || 0;
     var items = [];
@@ -1609,7 +1616,8 @@ function refresh() {
       var content = g.toLocaleString() + t('gamesUnit') + ' · ' + t('scoreRate') + ' ' + fmtPct((w + d * 0.5) / g) +
         ' · ' + t('winRate') + ' ' + fmtPct(w / g);
       var pieceTag = '';
-      if (isPlayerScope) {
+      /* 分支只剩一场对局时，[黑 N] / [白 N] 已无意义，不再显示 */
+      if (isPlayerScope && branchGames.length > 1) {
         var bwH = lastCands[j][4] || 0, wwH = lastCands[j][5] || 0;
         /* 方括号：该选手在本点执黑/执白各落多少次（只显示 >0 的） */
         var tagParts = [];
