@@ -18,10 +18,14 @@
     --gray: #9aa0a6;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  /* 禁用 iOS Safari 双击缩放（保留双指捏合缩放与滚动） */
+  * { touch-action: manipulation; }
   html, body {
     margin: 0; padding: 0; min-height: 100%;
     background: #f4f1ea;
     color: var(--ink);
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
     font-family: "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", system-ui, sans-serif;
   }
   body {
@@ -1703,6 +1707,18 @@ canvas.addEventListener('pointerleave', function () {
 
 document.getElementById('btnBack').addEventListener('click', undo);
 document.getElementById('btnFwd').addEventListener('click', redo);
+
+/* iOS Safari 老版本兜底：拦截 300ms 内的第二次 touchend，阻止双击放大
+ * 按钮/输入控件除外，避免影响连续点击操作 */
+var _lastTouchEnd = 0;
+document.addEventListener('touchend', function (e) {
+  var now = Date.now();
+  if (now - _lastTouchEnd <= 300) {
+    var tag = (e.target && e.target.tagName || '').toUpperCase();
+    if (tag !== 'BUTTON' && tag !== 'SELECT' && tag !== 'INPUT' && tag !== 'A') e.preventDefault();
+  }
+  _lastTouchEnd = now;
+}, { passive: false });
 var btnEngine = document.getElementById('btnEngine');
 btnEngine.addEventListener('click', function () {
   engineOn = !engineOn;
